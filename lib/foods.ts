@@ -1,0 +1,28 @@
+import { Food } from "./types";
+
+export const FOODS: Food[] = [
+  { id: "chicken-breast", name: "Chicken Breast", calories: 165, protein: 31, carbs: 0, fat: 3.6, servingSize: "100g" },
+  { id: "white-rice", name: "White Rice (cooked)", calories: 205, protein: 4.3, carbs: 45, fat: 0.4, servingSize: "1 cup" },
+  { id: "egg", name: "Egg", calories: 78, protein: 6.3, carbs: 0.6, fat: 5.3, servingSize: "1 large" },
+  { id: "banana", name: "Banana", calories: 105, protein: 1.3, carbs: 27, fat: 0.4, servingSize: "1 medium" },
+  { id: "broccoli", name: "Broccoli (steamed)", calories: 55, protein: 3.7, carbs: 11, fat: 0.6, servingSize: "1 cup" },
+  { id: "salmon", name: "Salmon", calories: 208, protein: 20, carbs: 0, fat: 13, servingSize: "100g" },
+  { id: "greek-yogurt", name: "Greek Yogurt (plain)", calories: 100, protein: 17, carbs: 6, fat: 0.7, servingSize: "170g" },
+  { id: "oats", name: "Rolled Oats (dry)", calories: 150, protein: 5, carbs: 27, fat: 3, servingSize: "40g" },
+  { id: "almonds", name: "Almonds", calories: 164, protein: 6, carbs: 6, fat: 14, servingSize: "28g (23 nuts)" },
+  { id: "avocado", name: "Avocado", calories: 240, protein: 3, carbs: 13, fat: 22, servingSize: "1 whole" },
+  { id: "sweet-potato", name: "Sweet Potato (baked)", calories: 103, protein: 2.3, carbs: 24, fat: 0.2, servingSize: "1 medium" },
+  { id: "peanut-butter", name: "Peanut Butter", calories: 190, protein: 8, carbs: 6, fat: 16, servingSize: "2 tbsp" },
+  { id: "whole-wheat-bread", name: "Whole Wheat Bread", calories: 81, protein: 4, carbs: 14, fat: 1.1, servingSize: "1 slice" },
+  { id: "ground-beef", name: "Ground Beef (90% lean)", calories: 176, protein: 20, carbs: 0, fat: 10, servingSize: "100g" },
+  { id: "milk", name: "Milk (2%)", calories: 122, protein: 8, carbs: 12, fat: 5, servingSize: "1 cup" },
+  { id: "apple", name: "Apple", calories: 95, protein: 0.5, carbs: 25, fat: 0.3, servingSize: "1 medium" },
+  { id: "black-beans", name: "Black Beans (cooked)", calories: 227, protein: 15, carbs: 41, fat: 0.9, servingSize: "1 cup" },
+  { id: "cheddar-cheese", name: "Cheddar Cheese", calories: 113, protein: 7, carbs: 0.4, fat: 9.3, servingSize: "28g" },
+  { id: "tofu", name: "Tofu (firm)", calories: 94, protein: 10, carbs: 2.3, fat: 5.3, servingSize: "100g" },
+  { id: "quinoa", name: "Quinoa (cooked)", calories: 222, protein: 8, carbs: 39, fat: 3.6, servingSize: "1 cup" },
+  { id: "spinach", name: "Spinach (raw)", calories: 7, protein: 0.9, carbs: 1.1, fat: 0.1, servingSize: "1 cup" },
+  { id: "olive-oil", name: "Olive Oil", calories: 119, protein: 0, carbs: 0, fat: 13.5, servingSize: "1 tbsp" },
+  { id: "shrimp", name: "Shrimp (cooked)", calories: 99, protein: 24, carbs: 0.2, fat: 0.3, servingSize: "100g" },
+  { id: "orange", name: "Orange", calories: 62, protein: 1.2, carbs: 15, fat: 0.2, servingSize: "1 medium" },
+];
