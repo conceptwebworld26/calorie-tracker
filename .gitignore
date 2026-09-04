@@ -1,8 +1,25 @@
-﻿node_modules/
+# Dependencies
+node_modules/
+
+# Environment / secrets — never commit real keys
 .env
 .env.local
 .env.*.local
+
+# Build output
+.next/
 dist/
 build/
-.next/
+out/
+*.tsbuildinfo
+
+# Runtime data (SQLite database is created on first run)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor
 .DS_Store
+Thumbs.db
+*.log
