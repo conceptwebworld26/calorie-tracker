@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { Food, NutritionAnalysis } from "@/lib/types";
+import { grams, kcal } from "@/lib/format";
+import Button from "./Button";
 import Spinner from "./Spinner";
 import ErrorNotice from "./ErrorNotice";
 
 /**
  * Confirmation step for an AI lookup. Nothing reaches the log until the user
  * presses Add, and every identified food is listed so they can drop the ones
- * Gemini got wrong or didn't actually eat.
+ * the model got wrong or that were never on the plate.
  */
 export default function AnalysisResult({
   analysis,
@@ -33,38 +35,27 @@ export default function AnalysisResult({
     [analysis.items, selected]
   );
 
-  const totals = useMemo(
-    () =>
-      chosen.reduce(
-        (acc, item) => ({
-          calories: acc.calories + item.calories,
-          protein: acc.protein + item.protein,
-          carbs: acc.carbs + item.carbs,
-          fat: acc.fat + item.fat,
-        }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0 }
-      ),
+  const totalCalories = useMemo(
+    () => chosen.reduce((sum, item) => sum + item.calories, 0),
     [chosen]
   );
 
   if (analysis.items.length === 0) {
     return (
-      <div className="space-y-3">
-        <p className="rounded-lg border border-dashed border-black/10 px-4 py-6 text-center text-sm text-neutral-500 dark:border-white/10">
-          {emptyMessage}
-          {analysis.note && (
-            <span className="mt-1 block text-xs text-neutral-400">
-              {analysis.note}
-            </span>
-          )}
-        </p>
-        <button
+      <div className="rounded-xl border border-dashed border-rule-strong px-6 py-8 text-center">
+        <p className="text-sm text-ink-2">{emptyMessage}</p>
+        {analysis.note && (
+          <p className="mt-1 text-xs text-ink-3">{analysis.note}</p>
+        )}
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={onDismiss}
-          className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-900 dark:hover:text-neutral-100"
+          className="mt-4"
         >
           Start over
-        </button>
+        </Button>
       </div>
     );
   }
@@ -85,79 +76,100 @@ export default function AnalysisResult({
       await onAddMany(chosen);
       onDismiss();
     } catch {
-      setSaveError("Couldn't save to your log. Please try again.");
+      setSaveError("That didn't save to your log. Try adding it again.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 rounded-xl border border-rule bg-surface p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+        <p className="text-sm text-ink-2">
           Found {analysis.items.length}{" "}
           {analysis.items.length === 1 ? "food" : "foods"}. Uncheck anything you
           didn&apos;t eat.
         </p>
-        <button
+        <Button
           type="button"
+          variant="quiet"
+          size="sm"
           onClick={onDismiss}
-          className="shrink-0 text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-900 dark:hover:text-neutral-100"
+          className="-mr-2 shrink-0"
         >
           Start over
-        </button>
+        </Button>
       </div>
 
-      <ul className="divide-y divide-black/10 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/10">
-        {analysis.items.map((item) => (
-          <li key={item.id}>
-            <label className="flex cursor-pointer items-center gap-3 px-4 py-3">
-              <input
-                type="checkbox"
-                checked={selected.has(item.id)}
-                onChange={() => toggle(item.id)}
-                className="size-4 shrink-0 accent-neutral-900 dark:accent-white"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{item.name}</span>
-                <span className="block text-xs text-neutral-500">
-                  {item.servingSize} · {item.calories} kcal · P{item.protein} C
-                  {item.carbs} F{item.fat}
+      <ul className="divide-y divide-rule overflow-hidden rounded-lg border border-rule">
+        {analysis.items.map((item) => {
+          const isOn = selected.has(item.id);
+          return (
+            <li key={item.id}>
+              <label
+                className={`flex cursor-pointer items-center gap-3 px-3.5 py-3 transition-opacity has-[:focus-visible]:bg-hover ${
+                  isOn ? "" : "opacity-55"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isOn}
+                  onChange={() => toggle(item.id)}
+                  className="size-4 shrink-0 accent-[var(--ink)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium leading-tight">
+                    {item.name}
+                  </span>
+                  <span className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-ink-3">
+                    <span>{item.servingSize}</span>
+                    <span>
+                      <span className="text-protein">P</span>{" "}
+                      {grams(item.protein)}
+                    </span>
+                    <span>
+                      <span className="text-carbs">C</span> {grams(item.carbs)}
+                    </span>
+                    <span>
+                      <span className="text-fat">F</span> {grams(item.fat)}
+                    </span>
+                  </span>
                 </span>
-              </span>
-            </label>
-          </li>
-        ))}
+                <span className="shrink-0 text-sm">
+                  <span className="font-semibold">{kcal(item.calories)}</span>
+                  <span className="ml-1 text-xs text-ink-3">kcal</span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
       </ul>
 
-      {analysis.note && (
-        <p className="text-xs text-neutral-500">
-          <span className="font-medium">Note:</span> {analysis.note}
-        </p>
-      )}
+      {analysis.note && <p className="text-xs text-ink-3">{analysis.note}</p>}
 
       {saveError && <ErrorNotice message={saveError} />}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm tabular-nums text-neutral-600 dark:text-neutral-400">
-          <span className="font-medium text-neutral-900 dark:text-neutral-100">
-            {Math.round(totals.calories)} kcal
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-rule pt-3">
+        <p className="text-sm text-ink-2">
+          <span className="font-semibold text-ink">
+            {kcal(totalCalories)} kcal
           </span>{" "}
-          · P{Math.round(totals.protein)} C{Math.round(totals.carbs)} F
-          {Math.round(totals.fat)}
+          selected
         </p>
-        <button
+        <Button
           type="button"
+          variant="primary"
           onClick={handleAdd}
           disabled={saving || chosen.length === 0}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
           {saving ? (
-            <Spinner label="Adding…" />
+            <Spinner label="Adding" />
+          ) : chosen.length === 0 ? (
+            "Nothing selected"
           ) : (
             `Add ${chosen.length} to log`
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );

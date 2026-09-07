@@ -1,29 +1,67 @@
 import { Food } from "@/lib/types";
+import { grams, kcal } from "@/lib/format";
+import Spinner from "./Spinner";
+
+export type AddState = "idle" | "adding" | "added";
 
 export default function FoodCard({
   food,
   onAdd,
-  disabled,
+  state,
 }: {
   food: Food;
   onAdd: (food: Food) => void;
-  disabled?: boolean;
+  state: AddState;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-black/10 px-4 py-3 dark:border-white/10">
-      <div className="min-w-0">
-        <p className="truncate font-medium">{food.name}</p>
-        <p className="text-xs text-neutral-500">
-          {food.servingSize} · {food.calories} kcal · P{food.protein} C{food.carbs} F{food.fat}
+    <div className="flex items-center gap-3 rounded-xl border border-rule bg-surface px-3.5 py-3 shadow-card transition-colors hover:border-rule-strong">
+      <div className="min-w-0 flex-1">
+        {/* Food names are long and the whole point of the row, so they wrap
+            rather than truncate. */}
+        <p className="text-sm font-medium leading-snug">{food.name}</p>
+        <p className="mt-1 text-xs text-ink-3">
+          {food.servingSize}, {kcal(food.calories)} kcal
+        </p>
+        <p className="mt-1 flex gap-2.5 text-xs text-ink-3">
+          <span>
+            <span className="text-protein">P</span> {grams(food.protein)}
+          </span>
+          <span>
+            <span className="text-carbs">C</span> {grams(food.carbs)}
+          </span>
+          <span>
+            <span className="text-fat">F</span> {grams(food.fat)}
+          </span>
         </p>
       </div>
+
       <button
         type="button"
         onClick={() => onAdd(food)}
-        disabled={disabled}
-        className="shrink-0 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+        disabled={state !== "idle"}
+        aria-label={`Add ${food.name}`}
+        className={`inline-flex h-8 w-[4.5rem] shrink-0 items-center justify-center gap-1 rounded-lg border text-[0.8125rem] font-medium transition-colors duration-150 disabled:cursor-default ${
+          state === "added"
+            ? "border-good/30 bg-good-wash text-good"
+            : "border-rule-strong bg-surface text-ink hover:border-ink hover:bg-ink hover:text-inverse disabled:opacity-60"
+        }`}
       >
-        Add
+        {state === "adding" && <Spinner />}
+        {state === "added" && (
+          <>
+            <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="none">
+              <path
+                d="M3.5 8.5l3 3 6-7"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Added
+          </>
+        )}
+        {state === "idle" && "Add"}
       </button>
     </div>
   );

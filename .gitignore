@@ -23,3 +23,6 @@ data/
 .DS_Store
 Thumbs.db
 *.log
+
+# Playwright MCP verification output
+.playwright-mcp/

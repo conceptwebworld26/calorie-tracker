@@ -7,9 +7,12 @@ import {
   MAX_IMAGE_BYTES,
   useAnalysis,
 } from "@/lib/useAnalysis";
-import Spinner from "./Spinner";
+import Button from "./Button";
 import ErrorNotice from "./ErrorNotice";
 import AnalysisResult from "./AnalysisResult";
+import AnalysisSkeleton from "./AnalysisSkeleton";
+
+const MAX_IMAGE_MB = MAX_IMAGE_BYTES / 1024 / 1024;
 
 export default function PhotoFood({
   onAddMany,
@@ -39,13 +42,15 @@ export default function PhotoFood({
     // Check locally first so an obviously bad file never costs an upload.
     if (!ALLOWED_IMAGE_TYPES.includes(chosen.type)) {
       setPicked(null);
-      fail("That file isn't a supported image. Use a JPEG, PNG, WebP or HEIC photo.");
+      fail(
+        "That file isn't a supported image. Use a JPEG, PNG, WebP or HEIC photo."
+      );
       return;
     }
     if (chosen.size > MAX_IMAGE_BYTES) {
       setPicked(null);
       fail(
-        `That photo is ${(chosen.size / 1024 / 1024).toFixed(1)}MB — please use one under ${MAX_IMAGE_BYTES / 1024 / 1024}MB.`
+        `That photo is ${(chosen.size / 1024 / 1024).toFixed(1)}MB. Photos need to be under ${MAX_IMAGE_MB}MB.`
       );
       return;
     }
@@ -62,7 +67,7 @@ export default function PhotoFood({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <input
         ref={inputRef}
         id="meal-photo"
@@ -75,38 +80,66 @@ export default function PhotoFood({
       {!file && (
         <label
           htmlFor="meal-photo"
-          className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed border-black/15 px-4 py-10 text-center transition hover:border-neutral-400 hover:bg-black/[0.02] dark:border-white/15 dark:hover:bg-white/[0.03]"
+          className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-rule-strong px-4 py-12 text-center transition-colors hover:border-ink hover:bg-hover has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink"
         >
-          <span className="text-sm font-medium">Take or upload a photo</span>
-          <span className="text-xs text-neutral-500">
-            JPEG, PNG, WebP or HEIC · up to {MAX_IMAGE_BYTES / 1024 / 1024}MB
+          <svg
+            viewBox="0 0 24 24"
+            aria-hidden
+            fill="none"
+            className="size-7 text-ink-3"
+          >
+            <rect
+              x="2.75"
+              y="5.75"
+              width="18.5"
+              height="14.5"
+              rx="2.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M8.5 5.75l1.2-2.1a1 1 0 01.87-.5h2.86a1 1 0 01.87.5l1.2 2.1"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+            <circle
+              cx="12"
+              cy="13"
+              r="3.75"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+          </svg>
+          <span className="font-medium">Take or upload a photo</span>
+          <span className="text-sm text-ink-3">
+            JPEG, PNG, WebP or HEIC, up to {MAX_IMAGE_MB}MB
           </span>
         </label>
       )}
 
       {previewUrl && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- blob: preview of a
               local file; next/image needs a static or remote-configured source. */}
           <img
             src={previewUrl}
             alt="The meal you uploaded"
-            className="max-h-64 w-full rounded-lg border border-black/10 object-contain dark:border-white/10"
+            className="max-h-72 w-full rounded-xl border border-rule bg-sunken object-contain"
           />
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={startOver}
-            className="text-sm text-neutral-500 underline underline-offset-4 hover:text-neutral-900 dark:hover:text-neutral-100"
           >
             Choose a different photo
-          </button>
+          </Button>
         </div>
       )}
 
       {status === "loading" && (
-        <p className="text-neutral-500">
-          <Spinner label="Looking at your photo…" />
-        </p>
+        <AnalysisSkeleton message="Looking at your plate" />
       )}
 
       {status === "error" && error && (
@@ -121,7 +154,7 @@ export default function PhotoFood({
           analysis={result}
           onAddMany={onAddMany}
           onDismiss={startOver}
-          emptyMessage="No food spotted in that photo. Try a clearer shot of the plate."
+          emptyMessage="No food spotted in that photo. Try a clearer shot of the whole plate."
         />
       )}
     </div>

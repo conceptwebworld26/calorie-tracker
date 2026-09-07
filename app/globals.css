@@ -1,26 +1,139 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ---------------------------------------------------------------------------
+   Design tokens.
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+   Light and dark are two value sets behind one set of names, so components
+   name a role ("rule", "ink-2") and never a mode. That is why almost nothing
+   in this codebase carries a `dark:` variant any more — the variable swaps
+   underneath and the utility follows.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --paper: #f4f6f3;
+  --surface: #ffffff;
+  --surface-sunken: #eaeee9;
+  --surface-hover: #f0f3ef;
+
+  --ink: #101a16;
+  --ink-2: #47554e;
+  --ink-3: #6e7c75;
+  --ink-inverse: #f7faf8;
+
+  --rule: #dee4df;
+  --rule-strong: #c2ccc5;
+
+  /* Goal state. The only saturated colours in the interface, so a glance at
+     the bar reads as status and nothing else competes with it. */
+  --good: #1f7a4c;
+  --warn: #a97a14;
+  --over: #b03a2e;
+  --good-wash: #e8f3ec;
+  --over-wash: #fbecea;
+
+  /* Macros. Deliberately a cool triad so they never read as goal status. */
+  --protein: #17726b;
+  --carbs: #4757a8;
+  --fat: #8c4470;
+
+  --shadow-card: 0 1px 2px rgb(16 26 22 / 0.04);
+  --shadow-raised: 0 4px 16px -4px rgb(16 26 22 / 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #0b110f;
+    --surface: #141c19;
+    --surface-sunken: #1b2521;
+    --surface-hover: #1e2925;
+
+    --ink: #e8ede9;
+    --ink-2: #a3b0a9;
+    --ink-3: #7c8a83;
+    --ink-inverse: #0b110f;
+
+    --rule: #253028;
+    --rule-strong: #37453d;
+
+    --good: #4fbf83;
+    --warn: #e0ac46;
+    --over: #e8695a;
+    --good-wash: #12261c;
+    --over-wash: #2a1613;
+
+    --protein: #3fa79e;
+    --carbs: #8592e6;
+    --fat: #cd85b1;
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-raised: 0 4px 16px -4px rgb(0 0 0 / 0.5);
   }
 }
 
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--surface-sunken);
+  --color-hover: var(--surface-hover);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-inverse: var(--ink-inverse);
+
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-over: var(--over);
+  --color-good-wash: var(--good-wash);
+  --color-over-wash: var(--over-wash);
+
+  --color-protein: var(--protein);
+  --color-carbs: var(--carbs);
+  --color-fat: var(--fat);
+
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+}
+
+html {
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  /* Figures are compared column-to-column all over this interface, so they
+     line up everywhere rather than only where a utility was remembered. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* One focus treatment, applied by the browser's own heuristic. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--good);
+  color: var(--ink-inverse);
+}
+
+/* The interface animates only in response to something the person did — a bar
+   growing when food is logged, a panel opening. Honour the system setting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

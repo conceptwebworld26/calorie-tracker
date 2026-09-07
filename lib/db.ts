@@ -9,9 +9,7 @@ if (!fs.existsSync(dataDir)) {
 
 const globalForDb = globalThis as unknown as { db?: Database.Database };
 
-export const db =
-  globalForDb.db ??
-  new Database(path.join(dataDir, "app.db"));
+export const db = globalForDb.db ?? new Database(path.join(dataDir, "app.db"));
 
 if (process.env.NODE_ENV !== "production") {
   globalForDb.db = db;
@@ -29,6 +27,30 @@ db.exec(`
     carbs REAL NOT NULL,
     fat REAL NOT NULL,
     serving_size TEXT NOT NULL,
-    logged_at TEXT NOT NULL
+    logged_at TEXT NOT NULL,
+    meal TEXT NOT NULL DEFAULT 'snack'
   )
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
+
+/*
+ * There is no migration runner, so a column added to the CREATE TABLE above
+ * only reaches databases that do not exist yet. Existing ones need this.
+ * Rows logged before meals existed become snacks, which is the honest answer:
+ * we genuinely do not know which meal they were.
+ */
+const columns = db
+  .prepare(`PRAGMA table_info(log_entries)`)
+  .all() as { name: string }[];
+
+if (!columns.some((column) => column.name === "meal")) {
+  db.exec(
+    `ALTER TABLE log_entries ADD COLUMN meal TEXT NOT NULL DEFAULT 'snack'`
+  );
+}

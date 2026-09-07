@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { Food, LogEntry } from "@/lib/types";
+import { Food, LogEntry, MealType } from "@/lib/types";
+import { isMealType, mealForHour } from "@/lib/meals";
 
 function startOfTodayISO() {
   const now = new Date();
@@ -20,7 +21,8 @@ export async function GET() {
         carbs,
         fat,
         serving_size as servingSize,
-        logged_at as loggedAt
+        logged_at as loggedAt,
+        meal
       FROM log_entries
       WHERE logged_at >= ?
       ORDER BY logged_at ASC`
@@ -31,7 +33,14 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const food = (await request.json()) as Food;
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Expected a JSON body" }, { status: 400 });
+  }
+
+  const food = body as Food & { meal?: unknown };
 
   if (
     !food?.id ||
@@ -45,12 +54,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid food payload" }, { status: 400 });
   }
 
-  const loggedAt = new Date().toISOString();
+  const now = new Date();
+  // An unspecified meal is inferred rather than rejected, so an older client
+  // or a direct POST still lands somewhere sensible.
+  const meal: MealType = isMealType(food.meal)
+    ? food.meal
+    : mealForHour(now.getHours());
+  const loggedAt = now.toISOString();
 
   const result = db
     .prepare(
-      `INSERT INTO log_entries (food_id, name, calories, protein, carbs, fat, serving_size, logged_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO log_entries (food_id, name, calories, protein, carbs, fat, serving_size, logged_at, meal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       food.id,
@@ -60,13 +75,21 @@ export async function POST(request: NextRequest) {
       food.carbs,
       food.fat,
       food.servingSize,
-      loggedAt
+      loggedAt,
+      meal
     );
 
   const entry: LogEntry = {
-    ...food,
+    id: food.id,
+    name: food.name,
+    calories: food.calories,
+    protein: food.protein,
+    carbs: food.carbs,
+    fat: food.fat,
+    servingSize: food.servingSize,
     logId: Number(result.lastInsertRowid),
     loggedAt,
+    meal,
   };
 
   return NextResponse.json(entry, { status: 201 });
