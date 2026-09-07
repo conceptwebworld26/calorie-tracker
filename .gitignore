@@ -26,3 +26,6 @@ Thumbs.db
 
 # Playwright MCP verification output
 .playwright-mcp/
+
+# Machine-local skill symlinks (the real files live in .agents/)
+.claude/
