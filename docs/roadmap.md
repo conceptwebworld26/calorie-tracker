@@ -3,7 +3,7 @@
 Where the project is and what comes next. Items move up this file as they land;
 each section is ordered by priority within itself.
 
-*Last reviewed: 2026-09-04.*
+*Last reviewed: 2026-09-07.*
 
 ---
 
@@ -42,6 +42,28 @@ each section is ordered by priority within itself.
 - [x] Stale-response guarding, so a slow request cannot overwrite a newer one
 - [x] Tab panels stay mounted, preserving an in-flight analysis
 
+### Goals, meals, and the design system — `docs/2026-09-07-professional-redesign.md`
+
+- [x] Design token system in `app/globals.css`, surfaced as semantic Tailwind
+      utilities; light and dark as two value sets behind one set of names
+- [x] Daily calorie and macro goals, editable in place and stored in SQLite
+- [x] `settings` table and `GET`/`PUT /api/settings`, validated by `parseGoals`
+- [x] Colour-coded calorie progress bar: green, amber past 75%, red past 100%
+- [x] Macro bars for protein, carbs and fat, in a palette distinct from status
+- [x] Meal categories on every entry, with an `ALTER TABLE` migration guard
+- [x] Meal picker defaulting to the current time of day
+- [x] Log grouped by meal with per-meal calorie subtotals
+- [x] Per-meal calorie breakdown in the summary
+- [x] Header with the app name, today's date, and a sticky day-progress meter
+- [x] Card-style food and log entries; two-column desktop layout with a sticky
+      summary rail
+- [x] Shared primitives: `Button`, `Meter`, `Tabs`, `Spinner`
+- [x] Loading skeletons for the day and for an in-flight analysis
+- [x] Empty-log and load-failure states, and per-button "Added" confirmation
+- [x] Keyboard support for the tab strip (arrows, Home, End, roving `tabIndex`)
+- [x] Fixed: hydration mismatch on the locale-formatted date
+- [x] Fixed: three React Compiler lint errors from `setState` inside effects
+
 ### Repository and documentation
 
 - [x] Public GitHub repository
@@ -50,23 +72,63 @@ each section is ordered by priority within itself.
 - [x] `CLAUDE.md` as the persistent development contract
 - [x] README, LICENSE (MIT), CONTRIBUTING, SECURITY, `.env.example`
 - [x] `.gitignore` covering secrets, build output, and the runtime database
+- [x] `PLAN.md` — what was built, what was improved, and where it goes next
 
 ---
 
 ## In progress
 
-Nothing. The last feature work (the AI add-food UI) is complete, and the
-documentation pass above is the most recent change.
+Nothing. The professional-quality redesign above is the most recent change, and
+the documentation pass that followed it is complete.
 
 ---
 
 ## Next
 
-The MVP is functionally complete for its stated purpose. This section is the
-short list that makes it *good* rather than bigger — every item closes a gap a
-real daily user hits, and none of them expand the product's scope.
+The app is functionally complete for its stated purpose. Items 1 to 4 are the
+project owner's stated direction; the rest close gaps a daily user hits.
 
-### 1. Adjustable serving quantities
+### 1. Deploy to Vercel
+
+Not a configuration change. `better-sqlite3` is file-based and synchronous, and
+a serverless filesystem is ephemeral, so this means swapping the storage layer
+for Postgres or Turso.
+
+It also means **authentication and rate limiting land in the same change.** The
+app has neither, which is correct locally and unacceptable publicly: anyone with
+the URL could spend the owner's Gemini quota and read and write a shared log.
+Range and length validation on `POST /api/log` belongs in the same bundle.
+
+### 2. Food history and charts
+
+Blocked on the day-scoping bug below — fix that first, then build on it.
+
+`GET /api/log` compares the server's local midnight against UTC-stored
+timestamps. That is correct only while server and user share a timezone, and it
+is the blocking defect beneath any date feature.
+
+Then: a date picker, a past-days view, and weekly calorie and macro trends. This
+also earns the first index on `logged_at`.
+
+### 3. User preferences
+
+The `settings` table already stores goals through a validated key/value shape,
+so this extends an existing mechanism rather than adding one. Covers units
+(metric or imperial), which day the week starts on, and an explicit timezone —
+the last of which is part of the day-scoping fix above.
+
+### 4. Barcode scanning
+
+**Previously listed under *Not planned*.** It is now a stated direction at the
+project owner's request, and this entry records the reversal rather than leaving
+the two sections to contradict each other.
+
+It needs a real branded-food database — Open Food Facts is the obvious candidate
+— plus camera access and a scanning library. It is the largest item on this
+list, it reopens the "no branded-food database" decision from the initial build,
+and it should not start before the three above.
+
+### 5. Adjustable serving quantities
 
 The largest usability gap. Every Add logs exactly one serving, so two eggs means
 pressing Add twice, and an AI portion estimate can be accepted or dropped but
@@ -76,30 +138,21 @@ Needs a quantity control on `FoodCard` and on each row of `AnalysisResult`, with
 macros scaled before the POST. No schema change — the scaled values are simply
 what gets stored.
 
-### 2. A test framework
+### 6. A test framework
 
-There is none, and everything below this line gets riskier without it. Vitest is
-the natural fit. The first targets need no network and no browser:
-`sumTotals` and `isValidItem` in `lib/gemini.ts`, plus the request validation in
-all four route handlers.
+There is none, and everything above this line gets riskier without it. Vitest is
+the natural fit. The first targets need no network and no browser: `sumTotals`
+and `isValidItem` in `lib/gemini.ts`, `parseGoals` in `lib/goals.ts`, `goalTone`
+in `lib/progress.ts`, and the request validation in all five route handlers.
 
 Should land as its own change, not bundled into a feature.
 
-### 3. Fix day scoping, then add history
-
-`GET /api/log` compares the server's local midnight against UTC-stored
-timestamps. That is correct only while server and user share a timezone, and it
-is the blocking bug beneath any date feature.
-
-Fix it first, then add a date picker and a past-days view. This also earns the
-first index on `logged_at`.
-
-### 4. Clear the whole day
+### 7. Clear the whole day
 
 A one-press reset with a confirmation step. Small, self-contained, and the
 obvious complement to per-entry removal.
 
-### 5. Custom foods
+### 8. Custom foods
 
 Let a user save a food they eat often into their own catalogue, instead of
 re-describing it to the AI daily. Introduces the first genuinely new table, and
@@ -115,9 +168,8 @@ Worth doing eventually; none are blocking, and none should jump the queue above.
 
 - **A `source` column on `log_entries`**, so AI estimates and catalogue foods
   are distinguishable once logged — currently they are not.
-- **Editing a logged entry**, rather than removing and re-adding it.
-- **Optional daily targets** for calories or protein, shown against the running
-  total. Reporting only — no coaching, no streaks.
+- **Editing a logged entry**, rather than removing and re-adding it — including
+  moving it to a different meal, which today means removing and re-adding.
 - **Data export** to CSV or JSON, so the log is not trapped in a SQLite file.
 
 **AI and performance**
@@ -140,15 +192,18 @@ Worth doing eventually; none are blocking, and none should jump the queue above.
 - **Surface silent failures.** `handleAdd` in `app/page.tsx` swallows a failed
   POST — the food simply never appears.
 
-**Only if the project is ever hosted** — these are a bundle, not a menu, and
-none of them make sense to add individually to a local tool:
+**Accessibility and polish**
 
-- Authentication and per-user data scoping.
-- Rate limiting on `/api/analyze/*`, so a public instance cannot drain the
-  owner's Gemini quota.
-- Range and length validation on `POST /api/log`.
-- A hosted-database story — `better-sqlite3` is synchronous, file-based, and a
-  poor fit for a serverless deployment.
+- **A polite `aria-live` region on the day's running total**, so a screen reader
+  hears the total change. The per-button "Added" state is the only confirmation
+  today.
+- **Per-day goals**, so changing a target does not re-colour past days. Harmless
+  now; wrong the moment history exists.
+
+Hosting requirements — authentication, per-user scoping, rate limiting on
+`/api/analyze/*`, range validation on `POST /api/log`, and a hosted-database
+story — are no longer listed here. They are a bundle, and they now belong to
+*Deploy to Vercel* above.
 
 ---
 
@@ -158,6 +213,5 @@ Deliberately out of scope. A pull request adding one of these needs to make its
 case before implementation, not after:
 
 - Multi-user accounts, sharing, or social features
-- A full branded-food or restaurant database, or barcode scanning
 - Native mobile applications
 - Any framing of the estimates as medical, clinical, or dietetic advice

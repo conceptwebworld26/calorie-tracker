@@ -18,15 +18,21 @@ features).
 │ Browser                                                  │
 │                                                          │
 │  app/page.tsx  ("use client")                            │
-│    owns: entries[], loading, pendingId                   │
+│    owns: entries[], goals, loading, pendingId, meal      │
 │    derives: today's totals                               │
 │      │                                                   │
-│      ├── Summary          (totals)                       │
-│      ├── FoodLog          (entries, onRemove)            │
-│      └── AddFood          (onAdd, onAddMany, pendingId)  │
-│            ├── FoodSearch  → FoodCard   [static catalog] │
-│            ├── DescribeFood ─┐                           │
-│            └── PhotoFood ────┴→ useAnalysis → AnalysisResult
+│      ├── AppHeader        (date, consumed, goal)         │
+│      ├── DaySummary       (totals, goals, entries)       │
+│      │     ├── Meter × 4, MacroRow × 3                   │
+│      │     ├── MealBreakdown                             │
+│      │     └── GoalEditor                                │
+│      ├── AddFood          (onAdd, onAddMany, meal, …)    │
+│      │     ├── MealPicker, Tabs                          │
+│      │     ├── FoodSearch  → FoodCard  [static catalog]  │
+│      │     ├── DescribeFood ─┐                           │
+│      │     └── PhotoFood ────┴→ useAnalysis → AnalysisResult
+│      └── FoodLog          (entries, onRemove)            │
+│            └── MealSection × 4 → LogEntryCard            │
 └──────────┬───────────────────────────────────────────────┘
            │ fetch (JSON, or multipart for photos)
 ┌──────────▼───────────────────────────────────────────────┐
@@ -35,6 +41,7 @@ features).
 │  /api/log          GET  today's entries                  │
 │                    POST one entry                        │
 │  /api/log/[id]     DELETE one entry                      │
+│  /api/settings     GET/PUT daily goals                   │
 │  /api/analyze/text  POST → lib/gemini ─┐                 │
 │  /api/analyze/image POST → lib/gemini ─┤                 │
 └──────────┬─────────────────────────────┼────────────────-┘
@@ -49,25 +56,44 @@ features).
 
 **Next.js 16 App Router, React 19, Tailwind CSS v4.**
 
-`app/layout.tsx` is the only server component of consequence: it sets metadata,
-loads the Geist fonts via `next/font/google`, and renders a flex-column body.
+`app/layout.tsx` is the only server component of consequence: it sets metadata
+and the theme colour, loads Archivo via `next/font/google`, and renders a
+flex-column body.
 
-`app/page.tsx` is a client component and the **single owner of log state**. It
-holds `entries`, `loading`, and `pendingId`, and passes callbacks down. No child
-component fetches log data — this keeps the summary header, the log list, and
-the add panel from ever disagreeing about what has been logged.
+**Styling is token-driven.** `app/globals.css` defines the whole palette as CSS
+variables and exposes them through Tailwind v4's `@theme inline` as semantic
+utilities (`bg-surface`, `text-ink-2`, `border-rule`, `bg-good`). Light and dark
+are two value sets behind one set of names, so components name a role and the
+variable swaps underneath — which is why almost nothing in the codebase carries
+a `dark:` variant.
 
-Four state-changing operations live there:
+`app/page.tsx` is a client component and the **single owner of log and goal
+state**. It holds `entries`, `goals`, `loading`, `loadError`, `pendingId`,
+`addedId` and the selected `meal`, and passes callbacks down. No child component
+fetches log data — this keeps the header, the summary, the log and the add panel
+from ever disagreeing about what has been logged.
+
+`today` and the initial `meal` are derived in `useState` initialisers rather
+than effects: the React Compiler lint rules reject calling `setState`
+synchronously inside `useEffect`, and the date is needed on the first paint. The
+initial fetch takes the other permitted shape — an async IIFE inside the effect,
+setting state only after an `await`, guarded by an `active` flag.
+
+Five state-changing operations live there:
 
 | Handler | Behaviour |
 |---------|-----------|
-| `handleAdd` | One POST for a single catalogue food. Sets `pendingId` so that card's button disables while in flight. Silently gives up on failure. |
+| `handleAdd` | One POST for a single catalogue food, carrying the selected meal. Sets `pendingId` while in flight and `addedId` for ~1.4s afterwards, so the button shows a spinner and then "Added". Silently gives up on failure. |
 | `handleAddMany` | One **sequential** POST per confirmed AI item. Sequential rather than parallel so `logged_at` preserves the order shown in the confirmation list — `GET /api/log` sorts by it. Keeps whatever saved before a failure, then throws so the caller can show an error. |
 | `handleRemove` | Optimistic: drops the row from state immediately, then DELETEs. Refetches the whole log to revert if the request fails. |
-| `totals` | A `useMemo` reduce over `entries`. Derived, never stored — the header cannot drift from the list. |
+| `handleSaveGoals` | PUTs to `/api/settings` and takes the server's validated response as the new state. Throws so `GoalEditor` can show the failure inline. |
+| `totals` | A `useMemo` reduce over `entries`. Derived, never stored — the summary cannot drift from the list. |
 
 **Components** (`components/`) are presentational: props in, callbacks out, no
-fetching. Two are worth noting:
+fetching. Three shared primitives carry the visual system — `Button` (variants
+and sizes), `Meter` (every progress bar, at two sizes) and `Tabs` (a tab strip
+with a roving `tabIndex` and arrow/Home/End handling, because `role="tablist"`
+is a promise about keyboard behaviour). Three others are worth noting:
 
 - **`AddFood`** renders three tab panels and keeps **all three mounted**,
   toggling the `hidden` attribute rather than conditionally rendering. This is
@@ -77,6 +103,9 @@ fetching. Two are worth noting:
   own subtotal from the checked items. Both AI tabs render the same component
   with a different `emptyMessage`, so the two paths cannot diverge in
   behaviour.
+- **`FoodLog`** groups entries by meal in `MEALS` order and drops meals with no
+  entries, so four empty headings never appear. Per-meal subtotals are computed
+  in `MealSection` from the entries it was handed.
 
 **`lib/useAnalysis.ts`** is the one custom hook. It owns the request lifecycle
 for both AI routes (`status`, `result`, `error`) and holds a `requestId` ref so
@@ -139,9 +168,11 @@ runs `CREATE TABLE IF NOT EXISTS` **at import time**. In development the
 connection is cached on `globalThis` so hot reload does not open a new handle
 on every edit.
 
-There is **one table** and **no migration system**. Changing the schema of an
+There are **two tables** and **no migration system**. Changing the schema of an
 existing database requires an explicit `ALTER TABLE` — editing the
-`CREATE TABLE` text only affects databases created from scratch.
+`CREATE TABLE` text only affects databases created from scratch. `lib/db.ts`
+shows the pattern: it reads `PRAGMA table_info(log_entries)` and adds the `meal`
+column when a database predates it, defaulting old rows to a snack.
 
 ```sql
 CREATE TABLE IF NOT EXISTS log_entries (
@@ -153,9 +184,19 @@ CREATE TABLE IF NOT EXISTS log_entries (
   carbs        REAL NOT NULL,
   fat          REAL NOT NULL,
   serving_size TEXT NOT NULL,
-  logged_at    TEXT NOT NULL   -- UTC ISO 8601
+  logged_at    TEXT NOT NULL,           -- UTC ISO 8601
+  meal         TEXT NOT NULL DEFAULT 'snack'
+)
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL                   -- JSON
 )
 ```
+
+`settings` holds one row today, `goals`, whose value is a JSON `Goals` object.
+It is read and written through `parseGoals` in `lib/goals.ts`, so a hand-edited
+or older row falls back to the defaults instead of breaking the page.
 
 There are **no indexes** beyond the primary key. `GET /api/log` scans on
 `logged_at`; at single-user volumes this is irrelevant, and it is the obvious
@@ -167,8 +208,10 @@ Defined in `lib/types.ts`:
 
 ```ts
 Food              { id, name, calories, protein, carbs, fat, servingSize }
-LogEntry          Food & { logId, loggedAt }
+MealType          "breakfast" | "lunch" | "dinner" | "snack"
+LogEntry          Food & { logId, loggedAt, meal }
 MacroTotals       { calories, protein, carbs, fat }
+Goals             MacroTotals            -- same shape, so progress is a divide
 NutritionAnalysis { items: Food[], total: MacroTotals, note?: string }
 ```
 
@@ -202,8 +245,10 @@ consequences for deployment, covered under *Security posture* below.
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | `GET` | `/api/log` | — | `LogEntry[]` (today, ascending) |
-| `POST` | `/api/log` | `Food` (JSON) | `LogEntry`, 201 |
+| `POST` | `/api/log` | `Food` plus optional meal (JSON) | `LogEntry`, 201 |
 | `DELETE` | `/api/log/[id]` | — | `{ ok: true }`, or 404 |
+| `GET` | `/api/settings` | — | `Goals` (defaults if unset) |
+| `PUT` | `/api/settings` | `Goals` (JSON) | `Goals` as stored |
 | `POST` | `/api/analyze/text` | `{ description }` (JSON) | `NutritionAnalysis` |
 | `POST` | `/api/analyze/image` | `image` (multipart) | `NutritionAnalysis` |
 
@@ -317,7 +362,7 @@ mount → GET /api/log → entries → totals derived
 | Service | Required | Used for | Failure behaviour |
 |---------|----------|----------|-------------------|
 | Google Gemini API | Only for the two AI tabs | Nutrition estimation from text and photos | Routes return 500 (unconfigured) or 502 (upstream); the UI shows a friendly message. Catalogue add, log, and delete keep working. |
-| Google Fonts | Build time | Geist / Geist Mono, via `next/font` | Fonts are self-hosted after build; no runtime dependency. |
+| Google Fonts | Build time | Archivo, via `next/font` | Fonts are self-hosted after build; no runtime dependency. |
 
 No analytics, no error reporting, no telemetry.
 

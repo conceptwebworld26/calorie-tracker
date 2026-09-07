@@ -1,24 +1,32 @@
-# Calorie Tracker
+# Plate
 
-A single-page calorie tracker with three ways to log a meal: tap a common food,
-describe it in plain English, or photograph it. The last two use Google's Gemini
-API to estimate nutrition, so there is no food database to search.
+A single-page daily food log with three ways to record a meal: tap a common
+food, describe it in plain English, or photograph it. The last two use Google's
+Gemini API to estimate nutrition, so there is no food database to search.
 
 No accounts, no cloud, no subscription. Everything is stored in a local SQLite
 file.
 
 ```
-┌─────────────────────────────────────────────┐
-│ TODAY'S CALORIES                            │
-│ 1,847          142g protein  180g carbs ... │
-├─────────────────────────────────────────────┤
-│ Today's log                                 │
-│   Chicken Breast   100g · 165 kcal   Remove │
-│   White Rice       1 cup · 205 kcal  Remove │
-├─────────────────────────────────────────────┤
-│ Add a food                                  │
-│  [ Common foods ] [ Describe ] [ Photo ]    │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Plate  daily food log                          Monday, 7 September│
+│ ████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │
+├────────────────────────┬─────────────────────────────────────────┤
+│ Eaten today            │ Add food     Adding to [B][L][D][S]     │
+│ 1,255                  │ [ Common foods ][ Describe ][ Photo ]   │
+│ of 2,000 kcal 745 left │  Search 24 common foods                 │
+│ ████████████░░░░░░░░░  │  ┌──────────────┐ ┌──────────────┐      │
+│                        │  │ Chicken 165  │ │ Rice 205     │      │
+│ ● Protein ███░ 91/150g │  │ P31 C0 F3.6  │ │ P4 C45 F0.4  │      │
+│ ● Carbs   ███░ 146/225 │  └──────────────┘ └──────────────┘      │
+│ ● Fat     ██░░  36/55g │                                         │
+│                        │ Today's log                             │
+│ Breakfast     355 kcal │ Breakfast  3 items            355 kcal  │
+│ Lunch         425 kcal │ ───────────────────────────────────────  │
+│ Dinner        311 kcal │  Rolled Oats    40g at 7:12    150 kcal │
+│ Snacks        164 kcal │  Greek Yogurt  170g at 7:14    100 kcal │
+│ Edit goals             │ Lunch      3 items            425 kcal  │
+└────────────────────────┴─────────────────────────────────────────┘
 ```
 
 ## Why
@@ -40,10 +48,16 @@ estimate you actually record beats a precise figure you never enter.
 - **Photograph a plate** (JPEG, PNG, WebP, or HEIC, up to 5MB) and get the same
 - **A confirmation step for every AI estimate** — items arrive as a checklist,
   and nothing is written to your log until you press Add
-- **A running daily total** of calories, protein, carbs, and fat, updating live
+- **Daily calorie and macro goals**, editable in place, with a progress bar that
+  reads green under 75% of the goal, amber to 100%, and red past it
+- **Macro bars** for protein, carbs, and fat against their own targets
+- **Meals** — every entry is filed under Breakfast, Lunch, Dinner, or Snacks,
+  with per-meal subtotals and a picker that defaults to the current time of day
+- **A running daily total**, updating live as entries are added or removed
 - **Per-entry removal**, with the log as the source of truth
 - **Local persistence** via SQLite — survives refreshes and restarts
-- **Dark mode** throughout
+- **Responsive and theme-aware** — a two-column desktop layout with a sticky
+  summary rail, stacking on mobile, in light and dark
 
 The log covers **today only**, and each Add records exactly **one serving**.
 Adjustable quantities and a history view are on the [roadmap](docs/roadmap.md),
@@ -163,35 +177,55 @@ npx tsc --noEmit && npm run lint && npm run build
 
 Adding a test framework is a priority on the [roadmap](docs/roadmap.md), and a
 good first contribution. Vitest is the natural fit; the pure functions in
-`lib/gemini.ts` and the route-handler validation are the highest-value first
-targets, and neither needs a network call.
+`lib/gemini.ts`, `parseGoals` in `lib/goals.ts`, `goalTone` in `lib/progress.ts`
+and the route-handler validation are the highest-value first targets, and none
+of them needs a network call.
 
 ## Project structure
 
 ```
 app/
-  page.tsx                     Main (and only) page — client component, owns log state
-  layout.tsx                   Root layout, fonts, metadata
+  page.tsx                     Main (and only) page — owns log and goal state
+  layout.tsx                   Root layout, font, metadata, theme colour
+  globals.css                  Design tokens: the whole palette, light and dark
   api/log/route.ts             GET today's entries · POST an entry
   api/log/[id]/route.ts        DELETE an entry
+  api/settings/route.ts        GET/PUT the day's calorie and macro goals
   api/analyze/text/route.ts    POST — estimate nutrition from a description
   api/analyze/image/route.ts   POST — estimate nutrition from a photo
 components/
-  Summary.tsx                  Sticky header with calorie/macro totals
-  AddFood.tsx                  Tab container: Common foods / Describe / Photo
-  FoodSearch.tsx               Search input + filtered food grid
-  FoodCard.tsx                 One food's macros + Add button
+  AppHeader.tsx                Name, date, and a sticky day-progress meter
+  DaySummary.tsx               Calories, macros, meal breakdown, goal editor
+  Meter.tsx                    Every progress bar, at two sizes
+  MacroRow.tsx                 One macro: label, bar, value against goal
+  MealBreakdown.tsx            Per-meal calorie totals for the day
+  GoalEditor.tsx               In-place form for the four daily targets
+  AddFood.tsx                  Meal picker + three tabs
+  MealPicker.tsx               Which meal the next entry lands in
+  Tabs.tsx                     Tab strip with full keyboard support
+  FoodSearch.tsx               Search input + capped, scrollable food grid
+  FoodCard.tsx                 One catalogue food + Add button
   DescribeFood.tsx             Textarea → /api/analyze/text
   PhotoFood.tsx                File picker + preview → /api/analyze/image
   AnalysisResult.tsx           Shared confirmation checklist for both AI paths
-  FoodLog.tsx                  Today's logged entries
-  LogEntryRow.tsx              One entry + Remove
+  AnalysisSkeleton.tsx         Placeholder while the model works
+  FoodLog.tsx                  Today's entries, grouped by meal
+  MealSection.tsx              One meal heading + its entries + subtotal
+  LogEntryCard.tsx             One logged entry + Remove
+  DaySkeleton.tsx              Placeholder while the day loads
+  Button.tsx                   Every button in the app
   Spinner.tsx                  Inline loading spinner
   ErrorNotice.tsx              Error box with optional retry
 lib/
-  types.ts                     Food / LogEntry / NutritionAnalysis
+  types.ts                     Food / MealType / LogEntry / Goals / analysis
   foods.ts                     Static catalogue: 24 common foods
-  db.ts                        SQLite connection + table setup
+  meals.ts                     Meal order, labels, and time-of-day inference
+  goals.ts                     Defaults, ranges, and shared validation
+  progress.ts                  Goal-status thresholds (green / amber / red)
+  format.ts                    Calorie, gram, and clock formatting
+  today.ts                     The current date, formatted for display
+  api.ts                       The page's initial fetch
+  db.ts                        SQLite connection, tables, migration guard
   gemini.ts                    Gemini client, prompt, schema, validation
   useAnalysis.ts               Client hook for both AI routes
 docs/                          Product, architecture, roadmap, decision logs
@@ -203,6 +237,7 @@ data/                          SQLite file, created at runtime (gitignored)
 - [Product](docs/product.md) — what it does, who it is for, what is planned
 - [Architecture](docs/architecture.md) — how it actually works
 - [Roadmap](docs/roadmap.md) — completed, next, and future
+- [PLAN.md](PLAN.md) — what was built, what was improved, where it goes next
 - [CLAUDE.md](CLAUDE.md) — development conventions and constraints
 - `docs/YYYY-MM-DD-*.md` — dated decision logs explaining past choices
 
@@ -210,11 +245,11 @@ data/                          SQLite file, created at runtime (gitignored)
 
 See [docs/roadmap.md](docs/roadmap.md) for the full picture. Next up:
 
-1. Adjustable serving quantities
-2. A test framework
-3. Timezone-correct day scoping, then a history view
-4. Clear the whole day's log
-5. Custom foods
+1. Deploy to Vercel — needs a hosted database, plus auth and rate limiting
+2. Food history and charts — after fixing timezone-correct day scoping
+3. User preferences — units, week start, an explicit timezone
+4. Barcode scanning — needs a branded-food database and camera access
+5. Adjustable serving quantities, and a test framework
 
 ## Contributing
 

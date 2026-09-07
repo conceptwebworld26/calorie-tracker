@@ -1,6 +1,6 @@
 # Product
 
-What Calorie Tracker is, who it is for, and what it does today.
+What Plate is, who it is for, and what it does today.
 
 Everything under **Current features** exists in the codebase right now.
 Everything under **Planned capabilities** does not — it is intent, not
@@ -15,7 +15,7 @@ to find your exact meal in a database of hundreds of thousands of branded
 entries, then confirm a portion, then confirm a serving unit. That is a lot of
 friction for "I had chicken and rice."
 
-Calorie Tracker keeps one screen and three ways in:
+Plate keeps one screen and three ways in:
 
 1. **Tap a common food** — fastest, for the things you eat constantly.
 2. **Describe the meal in plain English** — for anything else.
@@ -43,11 +43,18 @@ estimates.
 
 The whole app is one page:
 
-- A **sticky summary header** with today's calories and protein/carbs/fat
-  totals, updating immediately as entries are added or removed.
-- **Today's log** — every entry with its serving size and macros, each with a
-  Remove button.
-- **An "Add a food" panel** with three tabs, one per input method.
+- A **sticky header** with the app name, today's date, and a thin meter of the
+  day's progress against the calorie goal.
+- A **summary card** with calories eaten, calories left, a colour-coded calorie
+  bar, three macro bars, a per-meal calorie breakdown, and an in-place editor
+  for the day's goals.
+- An **"Add food" panel** with a meal picker and three tabs, one per input
+  method.
+- **Today's log** — entries as cards, grouped under Breakfast, Lunch, Dinner and
+  Snacks with per-meal calorie subtotals, each with a Remove button.
+
+On a wide screen the summary sits in a sticky left rail while the add panel and
+the log scroll beside it; below that breakpoint the three stack.
 
 Data persists to a local SQLite file, so a refresh or a server restart does not
 lose anything.
@@ -82,6 +89,28 @@ serving size:
 
 Catalogue values are USDA-style reference figures. AI values are estimates for
 the portion described or photographed.
+
+### Daily goals
+
+- **Calorie and macro targets**, editable in place from the summary card and
+  stored in the database, so they survive a restart.
+- **The calorie bar is colour-coded**: green below 75% of the goal, amber from
+  75% to 100%, red past it. Past the goal the figure reads "N over" rather than
+  "N left".
+- **Three macro bars** show protein, carbs and fat against their own targets,
+  in a colour set deliberately distinct from the goal-status colours.
+- Defaults are 2,000 kcal with 150g protein, 225g carbs and 55g fat. Values are
+  range-checked on save, and an out-of-range entry says which field and what the
+  bounds are.
+
+### Meal categories
+
+- Every entry is filed under **Breakfast, Lunch, Dinner or Snacks**.
+- The add panel's meal picker **defaults to whichever meal it currently is**,
+  and applies to all three ways of adding food.
+- Today's log **groups entries under meal headings** with a calorie subtotal and
+  an item count per meal. Meals with nothing in them are not given a heading.
+- A **meal cannot be changed after logging** — remove the entry and add it again.
 
 ### Meal and calorie tracking
 
@@ -123,6 +152,17 @@ the portion described or photographed.
   tab — identical component, identical rules, nothing logged without an
   explicit press.
 
+### Loading, empty and error states
+
+- **A skeleton mirrors the real layout** while the day's log and goals load, so
+  nothing jumps when the data lands.
+- **A second skeleton, sized to the answer**, stands in while the model works.
+- **An empty log** names the three ways to add food rather than just saying it
+  is empty.
+- **A failed load** offers a retry instead of an empty page.
+- **Adding from the catalogue confirms on the button** — it shows a spinner,
+  then "Added" for a moment, so logging several things in a row registers.
+
 ### Error handling
 
 - API failures are translated into plain language rather than surfaced as
@@ -138,10 +178,12 @@ Called out because their absence is a design choice, not an oversight:
 
 - **No accounts, login, or authentication.** One user, one local database.
 - **No cloud sync.** Data lives in `data/app.db` on the machine running it.
-- **No editing after logging.** An entry can be removed, not amended.
-- **No branded or restaurant foods**, no barcode scanning.
-- **No goals, targets, streaks, or notifications.** It reports; it does not
-  coach.
+- **No editing after logging.** An entry can be removed, not amended — its meal
+  included.
+- **No branded or restaurant foods**, no barcode scanning yet. Barcode scanning
+  is now on the roadmap; see `roadmap.md`.
+- **No streaks, reminders, or notifications.** Goals are reported against; the
+  app does not coach.
 
 ---
 
@@ -168,15 +210,12 @@ None of the following exist yet. Ordering and rationale live in `roadmap.md`.
   cost two API calls.
 - **Client-side image downscaling** instead of rejecting photos over 5MB
   outright — most phone photos exceed it.
-- **Daily targets** — an optional calorie or protein goal, shown against the
-  running total.
 - **Data export** (CSV or JSON), so the log is not trapped in a SQLite file.
 
 ### Explicitly out of scope
 
 Not planned, and a pull request adding one would need to argue its case first:
 
-- Multi-user accounts, social features, or a hosted service.
-- A full branded-food database or barcode scanning.
+- Multi-user accounts or social features.
 - Native mobile apps.
 - Anything positioning the estimates as medical or clinical advice.
