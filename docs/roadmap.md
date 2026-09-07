@@ -3,7 +3,7 @@
 Where the project is and what comes next. Items move up this file as they land;
 each section is ordered by priority within itself.
 
-*Last reviewed: 2026-09-07.*
+*Last reviewed: 2026-09-07 (portfolio deployment).*
 
 ---
 
@@ -16,9 +16,11 @@ each section is ordered by priority within itself.
 - [x] Live search filtering the catalogue by name
 - [x] Add a food to today's log with one press
 - [x] Today's log with per-entry remove, optimistic and self-correcting
-- [x] SQLite persistence via `better-sqlite3`, surviving refresh and restart
+- [x] ~~SQLite persistence via `better-sqlite3`~~ — superseded by browser
+      storage on 2026-09-07, see below
 - [x] Denormalized log entries, so catalogue edits cannot rewrite history
-- [x] `GET`/`POST /api/log` and `DELETE /api/log/[id]`
+- [x] ~~`GET`/`POST /api/log` and `DELETE /api/log/[id]`~~ — removed with the
+      SQLite layer
 - [x] Dark mode throughout
 
 ### AI nutrition lookup — `docs/2026-09-03-gemini-nutrition-lookup.md`
@@ -46,11 +48,12 @@ each section is ordered by priority within itself.
 
 - [x] Design token system in `app/globals.css`, surfaced as semantic Tailwind
       utilities; light and dark as two value sets behind one set of names
-- [x] Daily calorie and macro goals, editable in place and stored in SQLite
-- [x] `settings` table and `GET`/`PUT /api/settings`, validated by `parseGoals`
+- [x] Daily calorie and macro goals, editable in place and persisted
+- [x] ~~`settings` table and `GET`/`PUT /api/settings`~~ — replaced by
+      `plate.goals.v1`, still validated by `parseGoals`
 - [x] Colour-coded calorie progress bar: green, amber past 75%, red past 100%
 - [x] Macro bars for protein, carbs and fat, in a palette distinct from status
-- [x] Meal categories on every entry, with an `ALTER TABLE` migration guard
+- [x] Meal categories on every entry
 - [x] Meal picker defaulting to the current time of day
 - [x] Log grouped by meal with per-meal calorie subtotals
 - [x] Per-meal calorie breakdown in the summary
@@ -63,6 +66,22 @@ each section is ordered by priority within itself.
 - [x] Keyboard support for the tab strip (arrows, Home, End, roving `tabIndex`)
 - [x] Fixed: hydration mismatch on the locale-formatted date
 - [x] Fixed: three React Compiler lint errors from `setState` inside effects
+
+### Portfolio deployment — `docs/2026-09-07-browser-storage.md`
+
+The app is live at <https://calorietracker.conceptwebworld.com>.
+
+- [x] Replaced SQLite with `localStorage` behind `lib/storage.ts`
+- [x] Removed `better-sqlite3`, `lib/db.ts`, `lib/api.ts`, and the `/api/log`,
+      `/api/log/[id]` and `/api/settings` routes
+- [x] No native dependencies left — `npm ci` needs no build toolchain
+- [x] Versioned storage keys (`plate.log.v1`, `plate.goals.v1`) with validation
+      on read, since stored data is user-editable and outlives app versions
+- [x] Fixed day scoping: "today" is now the visitor's own calendar day
+- [x] Fixed the date being frozen at build time by the static prerender
+- [x] A banner when the browser blocks site storage, and a footer note that the
+      log is per-browser
+- [x] Deployed on Vercel, with `GEMINI_API_KEY` verified absent from the bundle
 
 ### Repository and documentation
 
@@ -78,8 +97,7 @@ each section is ordered by priority within itself.
 
 ## In progress
 
-Nothing. The professional-quality redesign above is the most recent change, and
-the documentation pass that followed it is complete.
+Nothing. The portfolio deployment above is the most recent change.
 
 ---
 
@@ -88,34 +106,29 @@ the documentation pass that followed it is complete.
 The app is functionally complete for its stated purpose. Items 1 to 4 are the
 project owner's stated direction; the rest close gaps a daily user hits.
 
-### 1. Deploy to Vercel
+### 1. Rate-limit `/api/analyze/*`
 
-Not a configuration change. `better-sqlite3` is file-based and synchronous, and
-a serverless filesystem is ephemeral, so this means swapping the storage layer
-for Postgres or Turso.
+**The one real exposure in the current deployment.** The demo is public and
+unauthenticated, so anyone who loads the page can spend the owner's Gemini
+quota, and a script can do it in bulk.
 
-It also means **authentication and rate limiting land in the same change.** The
-app has neither, which is correct locally and unacceptable publicly: anyone with
-the URL could spend the owner's Gemini quota and read and write a shared log.
-Range and length validation on `POST /api/log` belongs in the same bundle.
+No database is needed for a useful first cut: an in-memory counter keyed by IP
+in the route handler, or Vercel's own edge middleware. Neither survives a cold
+start, which is fine — it raises the cost of abuse from zero to inconvenient.
 
 ### 2. Food history and charts
 
-Blocked on the day-scoping bug below — fix that first, then build on it.
+Now additive rather than blocked. `lib/storage.ts` already keeps 30 days and
+scopes "today" by the visitor's local calendar day, so the two things that used
+to stand in the way — the timezone bug and the lack of retained history — are
+already handled.
 
-`GET /api/log` compares the server's local midnight against UTC-stored
-timestamps. That is correct only while server and user share a timezone, and it
-is the blocking defect beneath any date feature.
-
-Then: a date picker, a past-days view, and weekly calorie and macro trends. This
-also earns the first index on `logged_at`.
+Needs a date picker, a past-days view, and weekly calorie and macro trends.
 
 ### 3. User preferences
 
-The `settings` table already stores goals through a validated key/value shape,
-so this extends an existing mechanism rather than adding one. Covers units
-(metric or imperial), which day the week starts on, and an explicit timezone —
-the last of which is part of the day-scoping fix above.
+Goals already live in `plate.goals.v1` behind a validated read/write. Extending
+it covers units (metric or imperial) and which day the week starts on.
 
 ### 4. Barcode scanning
 
@@ -155,8 +168,9 @@ obvious complement to per-entry removal.
 ### 8. Custom foods
 
 Let a user save a food they eat often into their own catalogue, instead of
-re-describing it to the AI daily. Introduces the first genuinely new table, and
-so the first real need for a migration story in `lib/db.ts`.
+re-describing it to the AI daily. Introduces the first genuinely new stored
+collection, and so the first real need for a versioning story in
+`lib/storage.ts`.
 
 ---
 
@@ -170,7 +184,8 @@ Worth doing eventually; none are blocking, and none should jump the queue above.
   are distinguishable once logged — currently they are not.
 - **Editing a logged entry**, rather than removing and re-adding it — including
   moving it to a different meal, which today means removing and re-adding.
-- **Data export** to CSV or JSON, so the log is not trapped in a SQLite file.
+- **Data export** to CSV or JSON, so the log is not trapped in one browser —
+  more valuable now that it is per-device.
 
 **AI and performance**
 
@@ -187,8 +202,8 @@ Worth doing eventually; none are blocking, and none should jump the queue above.
 **Engineering**
 
 - **CI on pull requests** — typecheck, lint, build, and tests once they exist.
-- **A migration story for `lib/db.ts`.** `CREATE TABLE IF NOT EXISTS` at import
-  time cannot alter an existing database; the first added column will need one.
+- **A migration story for stored data.** Bumping the key suffix drops old data
+  rather than upgrading it; a real migration would carry it forward.
 - **Surface silent failures.** `handleAdd` in `app/page.tsx` swallows a failed
   POST — the food simply never appears.
 
@@ -200,10 +215,10 @@ Worth doing eventually; none are blocking, and none should jump the queue above.
 - **Per-day goals**, so changing a target does not re-colour past days. Harmless
   now; wrong the moment history exists.
 
-Hosting requirements — authentication, per-user scoping, rate limiting on
-`/api/analyze/*`, range validation on `POST /api/log`, and a hosted-database
-story — are no longer listed here. They are a bundle, and they now belong to
-*Deploy to Vercel* above.
+**For the commercial version, designed separately:** accounts, per-user data
+scoping, cross-device sync, and the hosted database that all three imply. None
+of it belongs in this build — the demo is deliberately account-free, and adding
+any one piece would pull in the rest.
 
 ---
 

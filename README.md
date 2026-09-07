@@ -1,11 +1,14 @@
 # Plate
 
+**Live demo: <https://calorietracker.conceptwebworld.com>**
+
 A single-page daily food log with three ways to record a meal: tap a common
 food, describe it in plain English, or photograph it. The last two use Google's
 Gemini API to estimate nutrition, so there is no food database to search.
 
-No accounts, no cloud, no subscription. Everything is stored in a local SQLite
-file.
+No accounts, no sign-up, no subscription, no database. Your log and your goals
+are kept in your own browser — open the link and start logging. Nothing is
+shared with anyone, and nothing follows you to another device.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -55,7 +58,8 @@ estimate you actually record beats a precise figure you never enter.
   with per-meal subtotals and a picker that defaults to the current time of day
 - **A running daily total**, updating live as entries are added or removed
 - **Per-entry removal**, with the log as the source of truth
-- **Local persistence** via SQLite — survives refreshes and restarts
+- **Local persistence** in your browser — survives refreshes and restarts, and
+  is never sent anywhere
 - **Responsive and theme-aware** — a two-column desktop layout with a sticky
   summary rail, stacking on mobile, in light and dark
 
@@ -65,24 +69,25 @@ not in the app.
 
 ## How it works
 
-All three input methods converge on a single endpoint, so everything persists
+All three input methods converge on the same write, so everything persists
 identically.
 
 ```
-Common foods ──────────────────────────────────► POST /api/log ──► SQLite
-                                                        ▲
-Describe ──┐                                            │
-           ├─► POST /api/analyze/{text,image}           │
-Photo ─────┘        │                                   │
-                    ▼                                   │
-              Gemini (structured JSON)                  │
-                    │                                   │
-                    ▼                                   │
-           Confirmation checklist ──── you press Add ───┘
+Common foods ──────────────────────────────► addEntry() ──► localStorage
+                                                  ▲
+Describe ──┐                                      │
+           ├─► POST /api/analyze/{text,image}     │
+Photo ─────┘        │                             │
+                    ▼                             │
+              Gemini (structured JSON)            │
+                    │                             │
+                    ▼                             │
+           Confirmation checklist ─ you press Add ┘
 ```
 
-The two analysis endpoints **never write to the database**. They return an
-estimate; you decide what becomes a log entry.
+The two analysis endpoints are the only server code, and they **store nothing**.
+They return an estimate; you decide what becomes a log entry. An uploaded photo
+is held in memory for the length of the request and never written to disk.
 
 Two details make the estimates trustworthy enough to act on:
 
@@ -102,7 +107,7 @@ so changing the food catalogue later can never rewrite your history.
 | Language   | TypeScript 5, strict |
 | UI         | React 19 |
 | Styling    | Tailwind CSS v4 |
-| Database   | better-sqlite3 — a local file, no external service |
+| Storage    | `localStorage` — no database, no server-side state |
 | AI         | `@google/genai` (Gemini) |
 | Linting    | ESLint 9 + `eslint-config-next` |
 
@@ -128,9 +133,8 @@ use.
 
 ## Getting started
 
-**Requirements:** Node.js 20+ and npm. `better-sqlite3` compiles natively on
-install, so you will need the usual build tools for your platform (Xcode CLT on
-macOS, `build-essential` on Linux, Visual Studio Build Tools on Windows).
+**Requirements:** Node.js 20+ and npm. Every dependency is pure JavaScript, so
+there is no native build step and no platform toolchain to install.
 
 ```bash
 git clone https://github.com/conceptwebworld26/calorie-tracker.git
@@ -140,8 +144,8 @@ cp .env.example .env     # then add your key — see below
 npm run dev
 ```
 
-Open <http://localhost:3000>. The SQLite database is created automatically at
-`data/app.db` on first run.
+Open <http://localhost:3000>. There is nothing to set up: the log is created in
+your browser the first time you add a food.
 
 ### Environment variables
 
@@ -188,9 +192,6 @@ app/
   page.tsx                     Main (and only) page — owns log and goal state
   layout.tsx                   Root layout, font, metadata, theme colour
   globals.css                  Design tokens: the whole palette, light and dark
-  api/log/route.ts             GET today's entries · POST an entry
-  api/log/[id]/route.ts        DELETE an entry
-  api/settings/route.ts        GET/PUT the day's calorie and macro goals
   api/analyze/text/route.ts    POST — estimate nutrition from a description
   api/analyze/image/route.ts   POST — estimate nutrition from a photo
 components/
@@ -224,12 +225,10 @@ lib/
   progress.ts                  Goal-status thresholds (green / amber / red)
   format.ts                    Calorie, gram, and clock formatting
   today.ts                     The current date, formatted for display
-  api.ts                       The page's initial fetch
-  db.ts                        SQLite connection, tables, migration guard
+  storage.ts                   localStorage: the log and the goals
   gemini.ts                    Gemini client, prompt, schema, validation
   useAnalysis.ts               Client hook for both AI routes
 docs/                          Product, architecture, roadmap, decision logs
-data/                          SQLite file, created at runtime (gitignored)
 ```
 
 ## Documentation
@@ -265,12 +264,12 @@ limits between client and server, or surfacing the silent failure in
 **Do not open a public issue for a security vulnerability.** See
 [SECURITY.md](SECURITY.md) for how to report one.
 
-Two things worth knowing before you deploy this:
+Two things worth knowing before you deploy your own copy:
 
-- **There is no authentication and no rate limiting.** The app is built as a
-  local, single-user tool. A publicly reachable instance would let anyone read
-  and write the same log, and spend your Gemini quota.
-- **Never commit `.env` or `data/`.** Both are gitignored; keep them that way.
+- **There is no rate limiting on `/api/analyze/*`.** Anyone who can load your
+  instance can spend your Gemini quota. It is the first item on the roadmap.
+- **Never commit `.env`.** It is gitignored; keep it that way. Your
+  `GEMINI_API_KEY` is read only on the server and never reaches the browser.
 
 ## License
 

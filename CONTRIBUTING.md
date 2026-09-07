@@ -16,9 +16,8 @@ medical advice.
 
 ## Local setup
 
-**Requirements:** Node.js 20+ and npm. `better-sqlite3` compiles natively on
-install, so you need your platform's build tools — Xcode Command Line Tools on
-macOS, `build-essential` on Linux, Visual Studio Build Tools on Windows.
+**Requirements:** Node.js 20+ and npm. Every dependency is pure JavaScript, so
+there is no native build step and no platform toolchain to install.
 
 ```bash
 git clone https://github.com/conceptwebworld26/calorie-tracker.git
@@ -28,8 +27,8 @@ cp .env.example .env
 npm run dev
 ```
 
-Open <http://localhost:3000>. The SQLite database is created automatically at
-`data/app.db` on first run.
+Open <http://localhost:3000>. There is nothing to set up — the log is created in
+your browser the first time you add a food.
 
 To work on the AI features you need a `GEMINI_API_KEY` in `.env` — get one from
 [Google AI Studio](https://aistudio.google.com/apikey). Everything except the
@@ -55,9 +54,11 @@ The full set of conventions lives in [CLAUDE.md](CLAUDE.md). The short version:
 
 - **TypeScript strict.** No `any`, no `@ts-ignore`, no non-null assertions to
   get past the type checker — fix the type instead.
-- **Match the surrounding style.** Tailwind utilities inline, `camelCase` in
-  TypeScript, `snake_case` for SQLite columns.
-- **Every colour needs a `dark:` counterpart.** The app supports dark mode.
+- **Match the surrounding style.** Tailwind utilities inline, `camelCase`
+  throughout.
+- **Use the design tokens, never raw colours.** `bg-surface`, `text-ink-2`,
+  `border-rule` and friends are defined in `app/globals.css` and already carry
+  their dark-mode values, so `dark:` variants are almost never needed.
 - **Keep components presentational.** Props in, callbacks out. Data fetching
   belongs in `app/page.tsx` or a `lib/` hook.
 - **Comment *why*, not *what*.** Explain non-obvious decisions; do not narrate
@@ -69,9 +70,11 @@ The full set of conventions lives in [CLAUDE.md](CLAUDE.md). The short version:
 
 Two invariants that are easy to break by accident:
 
-- **The `/api/analyze/*` routes must never write to the database.** They return
+- **The `/api/analyze/*` routes must never store anything.** They return
   estimates; only an explicit user action creates a log entry.
 - **Totals are always computed from line items**, never taken from the model.
+- **`GEMINI_API_KEY` stays server-side.** `lib/gemini.ts` may only be imported
+  by a route handler — never by a client component.
 
 ### Adding dependencies
 
@@ -84,13 +87,16 @@ Do not add a package requiring a new external service or account, and do not
 bump Next.js, React, or Tailwind major versions as a side effect of unrelated
 work.
 
-### Changing the database schema
+### Changing the stored shape
 
-`lib/db.ts` runs `CREATE TABLE IF NOT EXISTS` at import time and **there are no
-migrations**. Editing the `CREATE TABLE` text only affects databases created
-from scratch — an existing `data/app.db` will not gain the column. Any schema
-change needs an explicit `ALTER TABLE` guard, and should say in the pull request
-how existing databases are handled.
+The log and the goals live in `localStorage` under versioned keys
+(`plate.log.v1`, `plate.goals.v1`), read and written only by `lib/storage.ts`.
+There are **no migrations**: a stored value that no longer matches the expected
+shape is dropped by `isValidEntry` / `parseGoals` rather than repaired.
+
+If you change the shape incompatibly, **bump the key suffix** so old data is
+ignored instead of half-read, and say so in the pull request. Remember that a
+visitor's browser can hold data written by any earlier version of the app.
 
 ## Testing requirements
 

@@ -39,6 +39,19 @@ It is explicitly **not** built for dietitians, clinical use, multi-user
 households, or anyone who needs verified nutrition data. Estimates are
 estimates.
 
+## What this build is
+
+This is the **public portfolio demo**, at
+<https://calorietracker.conceptwebworld.com>. It has no accounts and no
+database: each visitor's log and goals are kept in their own browser. Anyone can
+open the URL and use the whole app immediately, with nothing to sign up for and
+nothing shared with anyone else — and equally, the log does not follow them to
+another browser or device, and goes when they clear site data. The footer says
+so.
+
+A commercial version with real accounts and cross-device sync is a separate
+design, not a later section of this one.
+
 ## Core functionality
 
 The whole app is one page:
@@ -56,8 +69,8 @@ The whole app is one page:
 On a wide screen the summary sits in a sticky left rail while the add panel and
 the log scroll beside it; below that breakpoint the three stack.
 
-Data persists to a local SQLite file, so a refresh or a server restart does not
-lose anything.
+Data persists in the browser's own storage, so a refresh, a closed tab, or a
+restarted machine does not lose anything.
 
 ---
 
@@ -93,7 +106,7 @@ the portion described or photographed.
 ### Daily goals
 
 - **Calorie and macro targets**, editable in place from the summary card and
-  stored in the database, so they survive a restart.
+  saved in the browser's own storage, so they survive a refresh and a restart.
 - **The calorie bar is colour-coded**: green below 75% of the goal, amber from
   75% to 100%, red past it. Past the goal the figure reads "N over" rather than
   "N left".
@@ -137,7 +150,7 @@ the portion described or photographed.
 - A **note** may explain the main assumption behind the estimate — usually a
   cooking method or an unstated portion size.
 - A running total for the checked items sits next to the **"Add N to log"**
-  button. **Nothing is written to the database until that button is pressed.**
+  button. **Nothing reaches your food log until that button is pressed.**
 - If the input is not food, the model returns no items and the UI says so
   instead of logging anything.
 
@@ -176,8 +189,9 @@ the portion described or photographed.
 
 Called out because their absence is a design choice, not an oversight:
 
-- **No accounts, login, or authentication.** One user, one local database.
-- **No cloud sync.** Data lives in `data/app.db` on the machine running it.
+- **No accounts, login, or authentication.** Anyone can use it immediately.
+- **No cloud sync.** The log lives in the browser it was entered in. It does not
+  travel to another device, and clearing site data clears it.
 - **No editing after logging.** An entry can be removed, not amended — its meal
   included.
 - **No branded or restaurant foods**, no barcode scanning yet. Barcode scanning
@@ -210,7 +224,7 @@ None of the following exist yet. Ordering and rationale live in `roadmap.md`.
   cost two API calls.
 - **Client-side image downscaling** instead of rejecting photos over 5MB
   outright — most phone photos exceed it.
-- **Data export** (CSV or JSON), so the log is not trapped in a SQLite file.
+- **Data export** (CSV or JSON), so the log is not trapped in one browser.
 
 ### Explicitly out of scope
 

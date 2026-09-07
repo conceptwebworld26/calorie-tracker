@@ -11,44 +11,49 @@ do not hand-edit it.
 static list of 24 common foods, describe a meal in plain English, or upload a
 photo — the last two use the Gemini API to estimate nutrition. Every entry is
 filed under a meal (breakfast, lunch, dinner, snack), and the day is measured
-against editable calorie and macro goals. Deliberately a **single-user,
-local-first tool**: no login, no accounts, no multi-tenancy, everything in a
-local SQLite file.
+against editable calorie and macro goals.
+
+This is the **public portfolio/demo build**, live at
+<https://calorietracker.conceptwebworld.com>. No accounts, no login, no
+database: the log and goals live in each visitor's own browser via
+`localStorage`. A commercial version with real accounts is a separate design,
+out of scope here.
 
 ## Stack
 
 Next.js 16.3.1 (App Router, Turbopack) · React 19.2.8 · TypeScript 5 strict ·
-Tailwind CSS v4 · better-sqlite3 13 · `@google/genai` 2.21 · ESLint 9 with
-`eslint-config-next` (**React Compiler rules are on**). **No test framework is
-installed** — see *Testing*.
+Tailwind CSS v4 · `@google/genai` 2.21 · ESLint 9 with `eslint-config-next`
+(**React Compiler rules are on**). **No test framework is installed** — see
+*Testing*. There is no database driver and no native dependency.
 
 ## Architecture
 
 ```
-Browser (app/page.tsx, "use client" — owns log + goal state)
-   |  fetch
-   v
-Route handlers (app/api/**)
-   |-- /api/log  GET today · POST one   |-- /api/log/[id]  DELETE one
-   |-- /api/settings  GET/PUT goals     |-- /api/analyze/{text,image}
-   |                                          |
-   v                                          v
-lib/db.ts --> data/app.db (SQLite, WAL)   lib/gemini.ts --> Gemini
+app/page.tsx ("use client") — owns log + goal state
+   |                                    |
+   v                                    v  fetch (JSON / multipart)
+lib/storage.ts                    /api/analyze/{text,image}  (Node runtime)
+localStorage: plate.log.v1               |
+              plate.goals.v1             v  lib/gemini.ts --> Gemini API
 ```
 
 Invariants:
 
 - **`app/page.tsx` is the only stateful owner of the log and goals.** Children
-  take props and call callbacks, never fetching log data themselves.
-- **`/api/analyze/*` never writes to the database.** Pure estimate endpoints;
-  persistence happens only when the user confirms. All three add-food paths
-  converge on `POST /api/log`.
-- **Log entries are denormalized** — a row snapshots nutrition at log time, so
-  editing `lib/foods.ts` cannot rewrite history.
+  take props and call callbacks, never reading storage themselves.
+- **`lib/storage.ts` is the only module that touches `localStorage`.**
+- **The two `/api/analyze/*` routes are the only server code**, and exist solely
+  because `GEMINI_API_KEY` must never reach the browser. They hold no state,
+  write nothing and never touch the filesystem — an uploaded photo is buffered
+  in memory, base64-encoded and forwarded.
+- **All three add-food paths converge on `addEntry()`.**
+- **Log entries are denormalized** — an entry snapshots nutrition at log time,
+  so editing the static catalogue (`lib/foods.ts`, compiled into the bundle and
+  never written at runtime) cannot rewrite history.
 
-Layout: `app/` (pages, routes) · `components/` (presentational only) · `lib/`
-(types, foods, DB, Gemini, hooks, formatting) · `docs/` · `data/` (runtime,
-gitignored). `@/*` maps to the repository root; full picture in
+Layout: `app/` (page, layout, the two analyze routes) · `components/`
+(presentational only) · `lib/` (types, foods, storage, Gemini, hooks, formatting)
+· `docs/`. `@/*` maps to the repository root; full picture in
 `docs/architecture.md`.
 
 ## Commands and testing
@@ -58,14 +63,15 @@ npm run dev      # http://localhost:3000    npm run lint     # ESLint
 npm run build    # build + full TS pass     npx tsc --noEmit # type-check only
 ```
 
-`data/app.db` is created automatically on first run. There is no test framework,
-no test files and no `test` script — **verification is manual**, plus this
-mandatory pre-commit gate:
+No test framework, no test files, no `test` script — **verification is manual**,
+plus this mandatory pre-commit gate:
 `npx tsc --noEmit && npm run lint && npm run build`. A passing build is not
-evidence that behaviour works — exercise UI changes in the browser. When a
-framework arrives (Vitest, as its own change), start with the pure functions:
-`sumTotals`/`isValidItem` in `lib/gemini.ts`, `parseGoals`, `goalTone`, and
-route validation. **Never call the real Gemini API in a test.**
+evidence that behaviour works — exercise UI changes in the browser. **If you add
+or remove a route, delete `.next/` first**: stale generated types in
+`.next/dev/types/` fail `tsc` on their own. When a framework arrives (Vitest, as
+its own change), start with the pure functions: `sumTotals`/`isValidItem`,
+`parseGoals`, `goalTone`, and `isValidEntry` plus the local-day scoping in
+`lib/storage.ts`. **Never call the real Gemini API in a test.**
 
 ## Environment
 
@@ -76,7 +82,7 @@ route validation. **Never call the real Gemini API in a test.**
 | `GEMINI_API_KEY` | AI routes only | Without it `/api/analyze/*` return 500 with a setup message; the rest of the app works. |
 | `GEMINI_MODEL` | No | Overrides the model. Defaults to `gemini-3.5-flash-lite`. |
 
-`NODE_ENV` decides whether DB and Gemini clients cache on `globalThis` — a
+`NODE_ENV` decides whether the Gemini client caches on `globalThis` — a
 dev-only guard against hot reload creating new handles.
 
 ## Design system
@@ -88,15 +94,14 @@ before writing UI.
   `@theme inline` as a semantic utility (`bg-surface`, `text-ink-2`,
   `border-rule`, `bg-good`). Never write `text-neutral-500` or a hex value.
 - **`dark:` variants are almost never needed.** Light and dark are two value sets
-  behind one set of names; the variable swaps and the utility follows. Writing
-  `dark:` usually means you want a new token.
+  behind one set of names, so the variable swaps and the utility follows;
+  reaching for `dark:` usually means you want a new token.
 - **Saturation is reserved for goal status.** `--good`/`--warn`/`--over` are the
   only saturated colours; macros use a separate cool triad so the two never read
   as each other. **One typeface**, Archivo, across weights 400–700, with tabular
   figures on globally — the interface is numbers in columns.
 - **Shared primitives.** Buttons from `Button.tsx`, bars from `Meter.tsx`, tabs
-  from `Tabs.tsx`. Do not hand-roll another one. Motion answers actions only —
-  bars animate when a value changes, nothing animates on load, and
+  from `Tabs.tsx` — do not hand-roll another. Motion answers actions only, and
   `prefers-reduced-motion` is honoured globally.
 - **Accessibility is not optional.** Tabs implement arrow/Home/End with a roving
   `tabIndex`, meters carry `role="progressbar"` with `aria-valuetext`, every
@@ -109,61 +114,55 @@ before writing UI.
 - **Never call setState synchronously inside `useEffect`** — the React Compiler
   rules reject it. Derive it in a `useState` initialiser, or set it after an
   `await` in an async IIFE (see `app/page.tsx`).
-- **Components are presentational** — fetching lives in `app/page.tsx` or a
-  `lib/` hook (`useAnalysis`). **Naming:** `camelCase` in TypeScript,
-  `snake_case` for SQLite columns, aliased back in the `SELECT`.
+- **Never derive a date or time during render.** `/` is statically prerendered,
+  so a value computed at render time is the *build* date, baked into the HTML
+  and served to every visitor until the next deploy. Resolve it after mount.
+- **Components are presentational** — state lives in `app/page.tsx` or a `lib/`
+  hook (`useAnalysis`). **Naming:** `camelCase` throughout.
 - **Comments explain *why*, not *what*.** Match the existing density.
 
 ## Security
 
-- **Never commit secrets or `data/`** — no keys in source, docs, or commit
-  messages; `data/` holds real logged meals. **`GEMINI_API_KEY` is server-only**,
-  read inside `lib/gemini.ts` and imported only by route handlers. Never prefix
-  it `NEXT_PUBLIC_`.
-- **Validate every request body** before touching the DB. All SQL goes through
-  prepared statements with bound parameters — never string concatenation.
+- **Never commit secrets.** **`GEMINI_API_KEY` is server-only**, read inside
+  `lib/gemini.ts`, which is imported *only* by the two route handlers. Never
+  prefix it `NEXT_PUBLIC_`, never import `lib/gemini.ts` from a client
+  component, and never return the key in a response body.
 - **Treat user text and photos as untrusted model input.** The `responseSchema`
   constraint plus numeric validation in `lib/gemini.ts` is the defence against
   prompt injection; do not relax it. Render model output as text only.
-- **Deployment caveat:** no authentication, no rate limiting. Hosting this
-  publicly would let anyone spend the owner's Gemini quota and read and write a
-  shared log. If that becomes a goal, both must land in the same change.
+- **Treat `localStorage` as untrusted too.** A visitor can hand-edit it and it
+  outlives app versions, so `isValidEntry` drops anything malformed — the same
+  rule `isValidItem` applies to model output.
+- **This deployment is already public**, so keep it safe to be public: no
+  secrets in the bundle, no server-side state one visitor could read or
+  overwrite for another. There is deliberately **no rate limiting** on
+  `/api/analyze/*` — an accepted exposure of the owner's quota, first on the
+  roadmap.
 
-## AI / Gemini rules
+## Storage rules
 
-All Gemini access goes through `analyzeNutrition()` in `lib/gemini.ts`; both
-routes are thin wrappers, and new AI features go the same way.
-
-- **Structured output only** — `responseMimeType: "application/json"` plus a
-  `responseSchema`. Never parse free text or fish JSON out of a code fence.
-- **`total` is never requested from the model**; it is summed server-side, and
-  `isValidItem` drops anything not fully numeric before it returns.
-- **Temperature stays at 0.2.** Nutrition lookup is not creative work.
-- **Errors are typed.** Throw `GeminiError(message, status)`; `useAnalysis`
-  translates them for the UI. Keep both halves in sync. **The model id lives in
-  one place** — `MODEL` in `lib/gemini.ts`.
-- **Limits are enforced server-side**: 500 characters, 5MB, JPEG/PNG/WebP/HEIC.
-  The client pre-checks the same limits; change one, change both. **Every call
-  costs money** — there is no caching.
+- **Keys are versioned**: `plate.log.v1`, `plate.goals.v1`. If the stored shape
+  changes incompatibly, bump the suffix rather than migrating in place — an old
+  key that no longer parses is simply ignored.
+- **Reads never throw**, so a blocked or corrupt store degrades to an empty log.
+  **Writes deliberately do throw**: a failed write means the entry did not
+  persist, and `app/page.tsx` says so rather than pretending it saved.
+- **"Today" is the visitor's own calendar day**, compared with local date parts
+  in `isSameLocalDay`. Never scope the day on the server: the host is UTC and the
+  reader is not. Entries older than `KEEP_DAYS` (30) are pruned on write.
 
 ## Project-specific constraints
 
-- **`GET /api/log` is day-scoped** by the *server's* local midnight while
-  `logged_at` is UTC — correct only while server and user share a timezone. Any
-  history or date feature must fix this first.
-- **Schema changes need an `ALTER TABLE` guard.** `lib/db.ts` runs
-  `CREATE TABLE IF NOT EXISTS` at import time with no migrations, so editing that
-  text only affects fresh databases. The `meal` column shows the pattern.
-- **AI item ids repeat** (`ai-1`, `ai-2`, …), so `food_id` is not unique and
-  cannot group or de-duplicate; AI and catalog entries are also
-  indistinguishable once logged, as there is no `source` column.
-- **Each Add logs exactly one serving** — no quantity control — and
-  **`POST /api/log` trusts the client's numbers**, checking types but not ranges.
-- **`better-sqlite3` is synchronous** and blocks the event loop. Fine at this
-  scale; do not introduce unbounded queries.
+- **AI item ids repeat** (`ai-1`, `ai-2`, …), so `id` is not unique across
+  entries; `logId` is the identity, and it is a per-browser counter (max + 1) —
+  meaningless across browsers. AI and catalogue entries are indistinguishable
+  once logged: there is no `source` field.
+- **Each Add logs exactly one serving** — there is no quantity control.
+- **Nothing is shared between devices, browsers or visitors**, and clearing site
+  data clears the log. The footer says so; keep that note accurate.
 - **Tab panels stay mounted**, hidden via `hidden`, so an in-progress analysis
   survives a tab switch. Do not "optimize" into conditional rendering.
-- **Keep `Food` POST-able** (`NutritionAnalysis.items[]` are plain `Food`
+- **Keep `Food` storable** (`NutritionAnalysis.items[]` are plain `Food`
   objects) and **preserve the confirmation step** — never log an estimate
   automatically.
 
@@ -178,22 +177,21 @@ routes are thin wrappers, and new AI features go the same way.
   `docs/YYYY-MM-DD-slug.md` covering *what was built*, *choices and why*,
   *verification*, and *known simplifications*. Keep standing docs current:
   behaviour → `docs/product.md`, structure → `docs/architecture.md`, completed
-  work → `docs/roadmap.md`, rules → this file. **Never document a feature that
-  does not exist yet.**
+  work → `docs/roadmap.md`, rules → this file.
+- **Never document a feature that does not exist yet.**
 
 ## Next steps
 
 Sequenced; `docs/roadmap.md` carries the full list and the reasoning.
 
-1. **Deploy to Vercel.** Blocked on `better-sqlite3` — file-based and
-   synchronous against an ephemeral serverless filesystem. Means swapping the
-   storage layer (Postgres or Turso) *and* landing auth plus rate limiting in
-   the same change; the caveat above is not optional once hosted.
-2. **Food history and charts.** Fix day scoping first — it is the blocking
-   defect beneath any date feature. Then a date picker, a past-days view, and
-   weekly trends, earning the first index on `logged_at`.
-3. **User preferences.** Goals already live in `settings`; extend that table for
-   units, week start, and an explicit timezone — also part of the scoping fix.
+1. **Rate-limit `/api/analyze/*`.** The demo is public and unauthenticated, so
+   the AI routes are an open door to the owner's Gemini quota. Highest priority
+   now that it is deployed.
+2. **Food history and charts.** Entries are already kept 30 days and scoped by
+   local day, so a date picker and past-days view are additive — no migration,
+   no server. Weekly calorie and macro trends follow.
+3. **User preferences.** Goals already live in `plate.goals.v1`; extend it for
+   units (metric/imperial) and week start.
 4. **Barcode scanning.** Previously *Not planned*, now a stated direction. Needs
    a branded-food database (Open Food Facts) plus camera access, so it is the
-   largest item here and should not start before the three above.
+   largest item and should not start before the three above.

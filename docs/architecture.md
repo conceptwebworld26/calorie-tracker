@@ -8,17 +8,19 @@ rather than describing a plan.
 
 ## Shape of the system
 
-A single Next.js application. There is no separate backend service, no external
-database, and no build-time data pipeline. The only external dependency at
-runtime is the Gemini API, and the app still runs without it (minus the two AI
-features).
+A single Next.js application, deployed on Vercel as the public portfolio demo.
+There is no backend service, no database, and no build-time data pipeline. The
+log and the goals live in the visitor's own browser; the only server code is the
+pair of AI routes, which exist because `GEMINI_API_KEY` must stay server-side.
+The only external dependency at runtime is the Gemini API, and the app still
+runs without it (minus the two AI features).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ Browser                                                  │
 │                                                          │
 │  app/page.tsx  ("use client")                            │
-│    owns: entries[], goals, loading, pendingId, meal      │
+│    owns: entries[], goals, loading, addedId, meal        │
 │    derives: today's totals                               │
 │      │                                                   │
 │      ├── AppHeader        (date, consumed, goal)         │
@@ -33,23 +35,23 @@ features).
 │      │     └── PhotoFood ────┴→ useAnalysis → AnalysisResult
 │      └── FoodLog          (entries, onRemove)            │
 │            └── MealSection × 4 → LogEntryCard            │
+│                                                          │
+│  lib/storage.ts ──► localStorage                         │
+│      plate.log.v1     today's (and the last 30 days')    │
+│      plate.goals.v1   calorie and macro targets          │
 └──────────┬───────────────────────────────────────────────┘
            │ fetch (JSON, or multipart for photos)
 ┌──────────▼───────────────────────────────────────────────┐
-│ Next.js route handlers (Node runtime)                    │
+│ Next.js route handlers (Node runtime) — the only server   │
 │                                                          │
-│  /api/log          GET  today's entries                  │
-│                    POST one entry                        │
-│  /api/log/[id]     DELETE one entry                      │
-│  /api/settings     GET/PUT daily goals                   │
 │  /api/analyze/text  POST → lib/gemini ─┐                 │
 │  /api/analyze/image POST → lib/gemini ─┤                 │
-└──────────┬─────────────────────────────┼────────────────-┘
-           │                             │ HTTPS
-┌──────────▼──────────────┐   ┌──────────▼──────────────┐
-│ SQLite (better-sqlite3) │   │ Google Gemini API       │
-│ data/app.db, WAL mode   │   │ gemini-3.5-flash-lite   │
-└─────────────────────────┘   └─────────────────────────┘
+└────────────────────────────────────────┼────────────────-┘
+                                         │ HTTPS
+                              ┌──────────▼──────────────┐
+                              │ Google Gemini API       │
+                              │ gemini-3.5-flash-lite   │
+                              └─────────────────────────┘
 ```
 
 ## Frontend
@@ -68,25 +70,26 @@ variable swaps underneath — which is why almost nothing in the codebase carrie
 a `dark:` variant.
 
 `app/page.tsx` is a client component and the **single owner of log and goal
-state**. It holds `entries`, `goals`, `loading`, `loadError`, `pendingId`,
-`addedId` and the selected `meal`, and passes callbacks down. No child component
-fetches log data — this keeps the header, the summary, the log and the add panel
-from ever disagreeing about what has been logged.
+state**. It holds `entries`, `goals`, `loading`, `loadError`, `storageBlocked`,
+`addedId`, `today` and the selected `meal`, and passes callbacks down. No child
+component reads storage — this keeps the header, the summary, the log and the
+add panel from ever disagreeing about what has been logged.
 
-`today` and the initial `meal` are derived in `useState` initialisers rather
-than effects: the React Compiler lint rules reject calling `setState`
-synchronously inside `useEffect`, and the date is needed on the first paint. The
-initial fetch takes the other permitted shape — an async IIFE inside the effect,
-setting state only after an `await`, guarded by an `active` flag.
+**Everything time-dependent is resolved after mount, never during render.** `/`
+is statically prerendered, so a date computed at render time would be the
+*build* date, baked into the HTML and served to every visitor until the next
+deploy. `today` and the initial `meal` are therefore set inside the load effect,
+in the shape the React Compiler lint rules permit: an async IIFE that sets state
+only after an `await`, guarded by an `active` flag.
 
 Five state-changing operations live there:
 
 | Handler | Behaviour |
 |---------|-----------|
-| `handleAdd` | One POST for a single catalogue food, carrying the selected meal. Sets `pendingId` while in flight and `addedId` for ~1.4s afterwards, so the button shows a spinner and then "Added". Silently gives up on failure. |
-| `handleAddMany` | One **sequential** POST per confirmed AI item. Sequential rather than parallel so `logged_at` preserves the order shown in the confirmation list — `GET /api/log` sorts by it. Keeps whatever saved before a failure, then throws so the caller can show an error. |
-| `handleRemove` | Optimistic: drops the row from state immediately, then DELETEs. Refetches the whole log to revert if the request fails. |
-| `handleSaveGoals` | PUTs to `/api/settings` and takes the server's validated response as the new state. Throws so `GoalEditor` can show the failure inline. |
+| `handleAdd` | One `addEntry()` for a single catalogue food, carrying the selected meal. Sets `addedId` for ~1.4s so the button reads "Added". A storage failure flips `storageBlocked` and shows a banner. |
+| `handleAddMany` | One `addEntry()` per confirmed AI item, in order, so each gets its own `loggedAt` and the log reads in the order shown in the confirmation list. Keeps whatever saved before a failure, then throws so the caller can show an error. |
+| `handleRemove` | Optimistic: drops the row from state immediately, then removes it from storage. Re-reads today's entries to revert if the write fails. |
+| `handleSaveGoals` | Writes through `writeGoals`, which re-validates with `parseGoals` before storing. Throws so `GoalEditor` can show the failure inline. |
 | `totals` | A `useMemo` reduce over `entries`. Derived, never stored — the summary cannot drift from the list. |
 
 **Components** (`components/`) are presentational: props in, callbacks out, no
@@ -115,32 +118,9 @@ specific, everything else gets a plain-language stand-in.
 
 ## Backend
 
-Four **Next.js route handlers**, all running on the Node runtime (required —
-`better-sqlite3` is a native module and cannot run on the Edge runtime).
-
-### `GET /api/log`
-
-Returns today's entries, oldest first. Aliases `snake_case` columns to
-`camelCase` in the `SELECT` so nothing downstream sees database naming.
-
-Day scoping uses `startOfTodayISO()`: the server's **local** midnight, converted
-to a UTC ISO string, compared against `logged_at`. This is correct only while
-the server and the user share a timezone — true for local single-user use, and
-a genuine bug the moment the app is hosted. Any history feature must fix it.
-
-### `POST /api/log`
-
-Validates the payload has an id, a name, a serving size, and four numeric
-macros, then inserts and returns the created `LogEntry` with a 201. It checks
-**types but not ranges or string lengths** — a client can post a 10-million
-calorie entry. Acceptable for a local single-user tool; the first thing to
-harden if the app is hosted.
-
-### `DELETE /api/log/[id]`
-
-Parses the id as an integer, deletes by primary key, returns 404 if nothing
-matched. Note `Number.isInteger` accepts negative ids — harmless, since none
-exist to match.
+**Two** Next.js route handlers, both on the Node runtime, and both concerned
+only with Gemini. There is no other server code: no database, no session, no
+filesystem access, nothing that persists between requests.
 
 ### `POST /api/analyze/text` and `POST /api/analyze/image`
 
@@ -154,53 +134,62 @@ validate and the parts they pass in:
 
 Both catch `GeminiError` and map its `status` onto the HTTP response.
 
-**Neither route touches the database.** They are pure estimate endpoints;
-persistence only happens when the user confirms and the client calls
-`POST /api/log`.
+**Neither route stores anything.** They are pure estimate endpoints. The photo
+is read into memory with `arrayBuffer()`, base64-encoded, forwarded to Gemini,
+and dropped when the request ends — it is never written to disk, which is what
+makes them safe on a read-only serverless filesystem. Persistence happens only
+when the visitor confirms and the client writes to `localStorage`.
 
-## Database
+**Why these two exist at all.** Everything else in the app runs in the browser.
+These do not, because they need `GEMINI_API_KEY`, and a key shipped to the
+browser is a published key. The routes are the boundary that keeps it server
+side.
 
-**SQLite via `better-sqlite3`**, file-based at `data/app.db`. No server, no
-connection string, no external service. WAL journal mode is enabled.
+## Persistence
 
-`lib/db.ts` creates the `data/` directory if missing, opens the database, and
-runs `CREATE TABLE IF NOT EXISTS` **at import time**. In development the
-connection is cached on `globalThis` so hot reload does not open a new handle
-on every edit.
+**`localStorage`, in the visitor's own browser.** There is no database, no
+server-side state, and nothing shared between visitors, devices, or browsers.
 
-There are **two tables** and **no migration system**. Changing the schema of an
-existing database requires an explicit `ALTER TABLE` — editing the
-`CREATE TABLE` text only affects databases created from scratch. `lib/db.ts`
-shows the pattern: it reads `PRAGMA table_info(log_entries)` and adds the `meal`
-column when a database predates it, defaulting old rows to a snack.
+This is a deliberate fit for what this deployment is: a public portfolio demo
+with no accounts. A single server-side store would be *one log shared by every
+visitor at once* — each person overwriting the last. Per-browser storage gives
+everyone their own, costs nothing, and needs no infrastructure.
 
-```sql
-CREATE TABLE IF NOT EXISTS log_entries (
-  log_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  food_id      TEXT NOT NULL,
-  name         TEXT NOT NULL,
-  calories     REAL NOT NULL,
-  protein      REAL NOT NULL,
-  carbs        REAL NOT NULL,
-  fat          REAL NOT NULL,
-  serving_size TEXT NOT NULL,
-  logged_at    TEXT NOT NULL,           -- UTC ISO 8601
-  meal         TEXT NOT NULL DEFAULT 'snack'
-)
+`lib/storage.ts` is the only module that touches it. Two versioned keys:
 
-CREATE TABLE IF NOT EXISTS settings (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL                   -- JSON
-)
-```
+| Key | Holds |
+|-----|-------|
+| `plate.log.v1` | `LogEntry[]` — the last 30 days of entries |
+| `plate.goals.v1` | `Goals` — calorie and macro targets |
 
-`settings` holds one row today, `goals`, whose value is a JSON `Goals` object.
-It is read and written through `parseGoals` in `lib/goals.ts`, so a hand-edited
-or older row falls back to the defaults instead of breaking the page.
+Five rules make it behave under real conditions:
 
-There are **no indexes** beyond the primary key. `GET /api/log` scans on
-`logged_at`; at single-user volumes this is irrelevant, and it is the obvious
-first index if history lands.
+1. **Reads never throw.** `readRaw` catches everything and returns `null`, so a
+   blocked or hand-corrupted store degrades to an empty log rather than a blank
+   page.
+2. **Writes deliberately do throw.** A failed write means the entry did not
+   persist; `app/page.tsx` catches it, sets `storageBlocked`, and shows a
+   banner. Silently pretending it saved would be worse than the failure.
+3. **Stored data is untrusted.** `isValidEntry` checks every field of every row
+   before it reaches the UI — a visitor can edit `localStorage` by hand, and
+   the data outlives app versions. It is the same rule `isValidItem` applies to
+   model output, for the same reason: a bad row otherwise arrives as `NaN`.
+4. **"Today" is the visitor's calendar day.** `isSameLocalDay` compares local
+   date parts. This is the fix for the bug the previous SQLite version carried,
+   where the day was scoped by the *server's* midnight against UTC timestamps —
+   correct only when host and reader shared a timezone, and on a UTC host,
+   never.
+5. **Entries older than 30 days are pruned on write**, so a browser that keeps
+   the demo around for months does not grow without limit.
+
+Keys carry a `.v1` suffix so an incompatible change to the stored shape can bump
+the suffix instead of migrating in place. An old key that no longer parses is
+simply ignored, which is the whole migration story this build needs.
+
+**Known limits, accepted for a demo:** the log is per-browser and per-device,
+clearing site data clears it, and `logId` is a per-browser counter (`max + 1`)
+that means nothing outside the browser that issued it. The footer states the
+first two plainly rather than letting a visitor discover them.
 
 ### Data models
 
@@ -220,41 +209,53 @@ Two decisions are load-bearing:
 1. **Log entries are denormalized.** A row stores a *copy* of the nutrition
    values, not a reference to a catalogue food. Editing `lib/foods.ts` can never
    retroactively change what a past day reports.
-2. **`NutritionAnalysis.items[]` are plain `Food` objects.** That is why an AI
-   item can be POSTed straight to `/api/log` with no translation layer.
+2. **`NutritionAnalysis.items[]` are plain `Food` objects.** That is why a
+   confirmed AI item goes straight into the log with no translation layer.
 
 **Known wart:** AI item ids are numbered per analysis (`ai-1`, `ai-2`, ...), so
-they repeat across lookups and `food_id` is **not unique** in `log_entries`.
-Harmless, since `log_id` is the primary key — but `food_id` cannot be used to
-group or de-duplicate AI entries. There is also no `source` column, so once
-logged, an AI estimate is indistinguishable from a catalogue food.
+they repeat across lookups and `id` is **not unique** across entries. Harmless,
+since `logId` is the identity — but `id` cannot be used to group or de-duplicate
+AI entries. There is also no `source` field, so once logged, an AI estimate is
+indistinguishable from a catalogue food.
 
 ## Authentication
 
-**There is none.** No login, no sessions, no user table, no authorization checks
-on any route. Every request is anonymous and every request sees the same single
-log.
+**There is none, by design.** No login, no sessions, no user record, no
+authorization checks. This is a public portfolio demo, and the architecture is
+arranged so that none is needed: there is no server-side state for one visitor
+to read or overwrite for another, because each visitor's log lives only in their
+own browser.
 
-This is a deliberate fit for a local single-user tool, but it has direct
-consequences for deployment, covered under *Security posture* below.
+The one thing that *is* shared is the owner's Gemini quota, which the two
+analyze routes spend on behalf of anyone who visits. That is an accepted
+exposure for a demo and the reason rate limiting sits first on the roadmap. It
+is covered under *Security posture* below.
 
 ## APIs
 
 ### Internal
 
+Two, both for Gemini:
+
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `GET` | `/api/log` | — | `LogEntry[]` (today, ascending) |
-| `POST` | `/api/log` | `Food` plus optional meal (JSON) | `LogEntry`, 201 |
-| `DELETE` | `/api/log/[id]` | — | `{ ok: true }`, or 404 |
-| `GET` | `/api/settings` | — | `Goals` (defaults if unset) |
-| `PUT` | `/api/settings` | `Goals` (JSON) | `Goals` as stored |
 | `POST` | `/api/analyze/text` | `{ description }` (JSON) | `NutritionAnalysis` |
 | `POST` | `/api/analyze/image` | `image` (multipart) | `NutritionAnalysis` |
 
-Errors are `{ error: string }` with a meaningful status: 400 for bad input, 404
-for a missing entry, 500 for missing configuration, 502 for an upstream Gemini
-failure.
+Errors are `{ error: string }` with a meaningful status: 400 for bad input, 500
+for missing configuration, 502 for an upstream Gemini failure.
+
+The log and the goals have no HTTP surface at all. They are read and written
+through `lib/storage.ts`, in the browser:
+
+| Function | Does |
+|----------|------|
+| `loadDay()` | Today's entries plus goals, for the initial render |
+| `readTodaysEntries(now?)` | Entries falling on the visitor's local day |
+| `addEntry(food, meal)` | Appends one entry, prunes past 30 days, returns it |
+| `removeEntry(logId)` | Drops one entry by id |
+| `readGoals()` / `writeGoals(goals)` | Targets, validated by `parseGoals` |
+| `isStorageAvailable()` | Whether writes will actually work in this browser |
 
 ### External
 
@@ -272,7 +273,8 @@ Chosen after `gemini-2.5-flash-lite` began rejecting `generateContent` for new
 users and named this as its replacement.
 
 **Client caching** — the `GoogleGenAI` instance is cached on `globalThis` in
-development, same pattern as the database handle.
+development, so hot reload does not open a new client on every edit. It is the
+only long-lived handle left on the server.
 
 **Structured output** — every request sets
 `responseMimeType: "application/json"` plus a `responseSchema`, so the response
@@ -316,8 +318,8 @@ identical descriptions cost two calls.
 Two sources, and no third-party nutrition database:
 
 1. **The static catalogue** — `lib/foods.ts`, 24 hand-entered common foods with
-   USDA-style reference values. Compiled into the bundle; not in the database,
-   not fetched, not editable at runtime.
+   USDA-style reference values. Compiled into the bundle; not stored, not
+   fetched, not editable at runtime.
 2. **Gemini estimates** — generated per request from the model's own knowledge,
    instructed to use USDA-style reference values. These are **estimates**, not
    looked-up facts, and the app presents them as such.
@@ -330,9 +332,9 @@ or any other nutrition API.
 **Adding a catalogue food**
 
 ```
-FoodCard Add → onAdd → POST /api/log → INSERT → 201 LogEntry
-                                                  → appended to entries
-                                                  → totals recompute
+FoodCard Add → onAdd → addEntry() → localStorage
+                            → appended to entries
+                            → totals recompute
 ```
 
 **Adding via text or photo**
@@ -343,18 +345,23 @@ DescribeFood / PhotoFood
       → analyzeNutrition() → Gemini → validate → sum totals
   → NutritionAnalysis → AnalysisResult (checklist, nothing saved yet)
       → user unchecks any wrong items, presses "Add N to log"
-          → handleAddMany → one sequential POST /api/log per item
+          → handleAddMany → one addEntry() per item, in order
               → appended to entries → totals recompute
 ```
 
 The gap between the two lines of that second block is the point: **the analysis
-routes never write anything.** A user always sees and approves an estimate
+routes never store anything.** A user always sees and approves an estimate
 before it becomes a log entry.
+
+Nothing in either flow crosses the network except the analysis call itself. The
+log is written where it is read.
 
 **Page load**
 
 ```
-mount → GET /api/log → entries → totals derived
+mount → loadDay() → localStorage → entries + goals
+      → describeToday() → the visitor's own date and meal
+      → totals derived
 ```
 
 ## External services
@@ -375,7 +382,7 @@ is prefixed `NEXT_PUBLIC_`, so no configuration reaches the browser.
 |----------|----------|---------|---------|
 | `GEMINI_API_KEY` | For AI routes only | — | `lib/gemini.ts` |
 | `GEMINI_MODEL` | No | `gemini-3.5-flash-lite` | `lib/gemini.ts` |
-| `NODE_ENV` | Set by Next.js | — | `lib/db.ts`, `lib/gemini.ts` (dev-only client caching) |
+| `NODE_ENV` | Set by Next.js | — | `lib/gemini.ts` (dev-only client caching) |
 
 `.env` is gitignored; `.env.example` documents the shape with placeholders.
 
@@ -387,36 +394,43 @@ is prefixed `NEXT_PUBLIC_`, so no configuration reaches the browser.
   typescript presets.
 - **Tailwind v4** through `@tailwindcss/postcss` — no `tailwind.config.js`;
   configuration lives in CSS.
-- `better-sqlite3` compiles natively on install and is allow-listed under
-  `allowScripts` in `package.json`.
+- **No native dependencies.** Every package is pure JavaScript, so `npm ci` needs
+  no build toolchain and no `allowScripts` entry.
 
-Build output: `/` is prerendered as static content; all four API routes are
+Build output: `/` is prerendered as static content; the two API routes are
 server-rendered on demand.
+
+Because `/` is static, **nothing time-dependent may be computed during render** —
+it would be frozen at build time and served to every visitor until the next
+deploy. The date is resolved after mount for exactly this reason.
 
 ## Security posture
 
 What exists:
 
-- The Gemini key is server-only and never reaches the client bundle.
-- All SQL uses prepared statements with bound parameters — no string-built SQL.
+- The Gemini key is server-only and never reaches the client bundle — verified
+  against the built output, not just by inspection.
+- **No server-side state at all**, so there is nothing one visitor can read or
+  overwrite for another, and no injection surface: no database, no SQL, no
+  filesystem writes.
 - Both AI routes validate size, type, and length before spending an API call.
 - Model output is schema-constrained, numerically validated, and rendered as
   text only.
-- `.env` and `data/` are gitignored.
+- Stored data is re-validated on read, because `localStorage` is editable by the
+  person browsing.
+- `.env` is gitignored, along with the now-unused `data/` directory.
 
-What does not exist, and matters if this is ever hosted:
+What does not exist:
 
-- **No authentication or authorization.** Every visitor shares one log.
-- **No rate limiting on `/api/analyze/*`.** A public instance lets anyone spend
-  the owner's Gemini quota.
-- **No range or length validation on `POST /api/log`.** Types are checked;
-  values are not.
+- **No rate limiting on `/api/analyze/*`.** Anyone who loads the page can spend
+  the owner's Gemini quota. This is the one real exposure in the deployment and
+  the first item on the roadmap.
+- **No authentication.** Deliberate: there is nothing per-user to protect.
 - **No CSRF protection**, which matters only once there is a session to forge.
-- **Day scoping breaks across timezones**, as described above.
 
-These are consistent with a local single-user tool and are documented rather
-than fixed. Deploying publicly requires addressing at least the first three in
-the same change.
+The log itself carries no confidentiality risk on the server, because it never
+reaches the server. It is, however, readable by anything with access to the
+visitor's browser profile — appropriate for a demo, and stated in the footer.
 
 ## Testing
 
