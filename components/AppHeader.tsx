@@ -19,7 +19,7 @@ export default function AppHeader({
   consumed,
   goal,
 }: {
-  date: { long: string; short: string };
+  date: { long: string; short: string } | null;
   consumed: number;
   goal: number;
 }) {
@@ -36,15 +36,15 @@ export default function AppHeader({
               daily food log
             </span>
           </div>
-          {/* Server and browser can format a date differently; the browser's
-              version is the one that sticks after hydration. */}
-          <p className="text-right text-sm text-ink-2">
-            <span suppressHydrationWarning className="hidden sm:inline">
-              {date.long}
-            </span>
-            <span suppressHydrationWarning className="sm:hidden">
-              {date.short}
-            </span>
+          {/* Empty until the browser's own date is known, with the width
+              reserved so its arrival does not shift the header. */}
+          <p className="min-w-28 text-right text-sm text-ink-2 sm:min-w-44">
+            {date && (
+              <>
+                <span className="hidden sm:inline">{date.long}</span>
+                <span className="sm:hidden">{date.short}</span>
+              </>
+            )}
           </p>
         </div>
 

@@ -27,8 +27,8 @@ export type MacroTotals = {
 /** The day's targets. Same shape as `MacroTotals` so progress is a plain divide. */
 export type Goals = MacroTotals;
 
-/** What both AI lookup routes return. `items` are shaped like `Food`, so one
- *  can be POSTed straight to /api/log without translation. */
+/** What both AI lookup routes return. `items` are shaped like `Food`, so a
+ *  confirmed item goes straight into the log without translation. */
 export type NutritionAnalysis = {
   items: Food[];
   total: MacroTotals;

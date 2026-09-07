@@ -3,8 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Food, Goals, LogEntry, MealType } from "@/lib/types";
 import { DEFAULT_GOALS } from "@/lib/goals";
-import { describeToday } from "@/lib/today";
-import { fetchDay } from "@/lib/api";
+import { describeToday, Today } from "@/lib/today";
+import {
+  addEntry,
+  isStorageAvailable,
+  loadDay,
+  readTodaysEntries,
+  removeEntry,
+  writeGoals,
+} from "@/lib/storage";
 import AppHeader from "@/components/AppHeader";
 import DaySummary from "@/components/DaySummary";
 import AddFood from "@/components/AddFood";
@@ -13,18 +20,25 @@ import DaySkeleton from "@/components/DaySkeleton";
 import ErrorNotice from "@/components/ErrorNotice";
 
 export default function Home() {
-  const [today] = useState(describeToday);
+  /*
+   * The date is resolved after mount, never during render. This page is
+   * statically prerendered, so anything `describeToday()` returned at render
+   * time would be the *build* date, baked into the HTML and served to every
+   * visitor until the next deploy. The only clock worth asking is the one in
+   * the browser that is reading the page.
+   */
+  const [today, setToday] = useState<Today | null>(null);
 
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [goals, setGoals] = useState<Goals>(DEFAULT_GOALS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [storageBlocked, setStorageBlocked] = useState(false);
   const [addedId, setAddedId] = useState<string | null>(null);
 
-  // Starts on whichever meal it currently is, which saves a tap most of the
-  // time. It is only the initial value — the picker owns it from then on.
-  const [meal, setMeal] = useState<MealType>(today.meal);
+  // Set from the clock on first load, which saves a tap most of the time. It
+  // is only the initial value — the picker owns it from then on.
+  const [meal, setMeal] = useState<MealType>("snack");
 
   const addedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,10 +47,17 @@ export default function Home() {
 
     (async () => {
       try {
-        const day = await fetchDay();
+        const day = await loadDay();
         if (!active) return;
+        const now = describeToday();
+        setToday(now);
+        setMeal(now.meal);
         setEntries(day.entries);
         setGoals(day.goals);
+        // Reads work in private mode; writes are what fail. Check once, up
+        // front, so the warning is there before the first Add rather than
+        // after it silently does nothing.
+        setStorageBlocked(!isStorageAvailable());
       } catch {
         if (active) setLoadError(true);
       } finally {
@@ -59,9 +80,11 @@ export default function Home() {
     setLoading(true);
     setLoadError(false);
     try {
-      const day = await fetchDay();
+      const day = await loadDay();
+      setToday(describeToday());
       setEntries(day.entries);
       setGoals(day.goals);
+      setStorageBlocked(!isStorageAvailable());
     } catch {
       setLoadError(true);
     } finally {
@@ -70,16 +93,9 @@ export default function Home() {
   }, []);
 
   const handleAdd = useCallback(
-    async (food: Food) => {
-      setPendingId(food.id);
+    (food: Food) => {
       try {
-        const res = await fetch("/api/log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...food, meal }),
-        });
-        if (!res.ok) return;
-        const entry: LogEntry = await res.json();
+        const entry = addEntry(food, meal);
         setEntries((prev) => [...prev, entry]);
 
         // A moment of confirmation on the button that was pressed, so adding
@@ -87,58 +103,47 @@ export default function Home() {
         setAddedId(food.id);
         if (addedTimer.current) clearTimeout(addedTimer.current);
         addedTimer.current = setTimeout(() => setAddedId(null), 1400);
-      } finally {
-        setPendingId(null);
+      } catch {
+        setStorageBlocked(true);
       }
     },
     [meal]
   );
 
   /**
-   * Logs several AI-identified foods in one go. POSTs run in sequence rather
-   * than in parallel so `loggedAt` preserves the order shown in the
-   * confirmation list — GET /api/log sorts by it. Throws so the caller can
-   * surface a save failure.
+   * Logs several AI-identified foods in one go. Written one at a time so each
+   * gets its own `loggedAt` and the order shown in the confirmation list is
+   * the order they end up in. Throws so the caller can surface a save failure.
    */
   const handleAddMany = useCallback(
     async (foods: Food[]) => {
       const added: LogEntry[] = [];
-      for (const food of foods) {
-        const res = await fetch("/api/log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...food, meal }),
-        });
-        if (!res.ok) {
-          // Keep whatever did save; the log is the source of truth on refresh.
-          setEntries((prev) => [...prev, ...added]);
-          throw new Error("Failed to add entry");
-        }
-        added.push(await res.json());
+      try {
+        for (const food of foods) added.push(addEntry(food, meal));
+      } catch (error) {
+        // Keep whatever did save; storage is the source of truth on refresh.
+        setEntries((prev) => [...prev, ...added]);
+        setStorageBlocked(true);
+        throw error;
       }
       setEntries((prev) => [...prev, ...added]);
     },
     [meal]
   );
 
-  const handleRemove = useCallback(async (logId: number) => {
+  const handleRemove = useCallback((logId: number) => {
     setEntries((prev) => prev.filter((entry) => entry.logId !== logId));
-    const res = await fetch(`/api/log/${logId}`, { method: "DELETE" });
-    if (!res.ok) {
-      // Put the row back by taking the server's word for it.
-      const fresh = await fetch("/api/log").then((r) => r.json());
-      setEntries(fresh);
+    try {
+      removeEntry(logId);
+    } catch {
+      // Put the row back by re-reading what actually persisted.
+      setEntries(readTodaysEntries());
+      setStorageBlocked(true);
     }
   }, []);
 
   const handleSaveGoals = useCallback(async (next: Goals) => {
-    const res = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    if (!res.ok) throw new Error("Failed to save goals");
-    setGoals(await res.json());
+    setGoals(writeGoals(next));
   }, []);
 
   const totals = useMemo(
@@ -162,7 +167,7 @@ export default function Home() {
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
         {loadError ? (
           <ErrorNotice
-            message="Today's log didn't load. Check the server is running."
+            message="Today's log didn't load from this browser's storage."
             onRetry={retry}
           />
         ) : loading ? (
@@ -181,10 +186,12 @@ export default function Home() {
             </div>
 
             <div className="space-y-8">
+              {storageBlocked && (
+                <ErrorNotice message="This browser is blocking site storage, so nothing you log here will be kept. Private browsing is the usual cause." />
+              )}
               <AddFood
                 onAdd={handleAdd}
                 onAddMany={handleAddMany}
-                pendingId={pendingId}
                 addedId={addedId}
                 meal={meal}
                 onMealChange={setMeal}
@@ -197,8 +204,9 @@ export default function Home() {
 
       <footer className="mx-auto w-full max-w-5xl px-4 pb-8 pt-2 sm:px-6">
         <p className="text-xs text-ink-3">
-          Estimates from photos and descriptions are approximate. Everything you
-          log stays on this machine.
+          Estimates from photos and descriptions are approximate. This demo
+          keeps your log and goals in this browser only — clearing site data
+          clears them.
         </p>
       </footer>
     </>

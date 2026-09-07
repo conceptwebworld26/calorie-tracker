@@ -3,15 +3,13 @@
 import { useMemo, useState } from "react";
 import { Food } from "@/lib/types";
 import { FOODS } from "@/lib/foods";
-import FoodCard, { AddState } from "./FoodCard";
+import FoodCard from "./FoodCard";
 
 export default function FoodSearch({
   onAdd,
-  pendingId,
   addedId,
 }: {
   onAdd: (food: Food) => void;
-  pendingId: string | null;
   addedId: string | null;
 }) {
   const [query, setQuery] = useState("");
@@ -21,12 +19,6 @@ export default function FoodSearch({
     if (!q) return FOODS;
     return FOODS.filter((food) => food.name.toLowerCase().includes(q));
   }, [query]);
-
-  function stateFor(id: string): AddState {
-    if (pendingId === id) return "adding";
-    if (addedId === id) return "added";
-    return "idle";
-  }
 
   return (
     <div>
@@ -73,7 +65,7 @@ export default function FoodSearch({
                 key={food.id}
                 food={food}
                 onAdd={onAdd}
-                state={stateFor(food.id)}
+                state={addedId === food.id ? "added" : "idle"}
               />
             ))}
           </div>

@@ -19,14 +19,12 @@ type TabId = (typeof TABS)[number]["id"];
 export default function AddFood({
   onAdd,
   onAddMany,
-  pendingId,
   addedId,
   meal,
   onMealChange,
 }: {
   onAdd: (food: Food) => void;
   onAddMany: (foods: Food[]) => Promise<void>;
-  pendingId: string | null;
   addedId: string | null;
   meal: MealType;
   onMealChange: (meal: MealType) => void;
@@ -60,7 +58,7 @@ export default function AddFood({
         hidden={tab !== "quick"}
         className="mt-4"
       >
-        <FoodSearch onAdd={onAdd} pendingId={pendingId} addedId={addedId} />
+        <FoodSearch onAdd={onAdd} addedId={addedId} />
       </div>
       <div
         role="tabpanel"

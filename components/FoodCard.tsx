@@ -1,8 +1,9 @@
 import { Food } from "@/lib/types";
 import { grams, kcal } from "@/lib/format";
-import Spinner from "./Spinner";
 
-export type AddState = "idle" | "adding" | "added";
+/* Writes go straight to browser storage, so there is no in-flight state to
+   show — a food is either not yet added or just added. */
+export type AddState = "idle" | "added";
 
 export default function FoodCard({
   food,
@@ -46,7 +47,6 @@ export default function FoodCard({
             : "border-rule-strong bg-surface text-ink hover:border-ink hover:bg-ink hover:text-inverse disabled:opacity-60"
         }`}
       >
-        {state === "adding" && <Spinner />}
         {state === "added" && (
           <>
             <svg viewBox="0 0 16 16" aria-hidden className="size-3.5" fill="none">
